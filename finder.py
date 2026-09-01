@@ -40,6 +40,9 @@ class LeakFinder(ast.NodeVisitor):
         elif method_name == "shift":
             self.check_shift(node)
 
+        elif method_name == "rolling":
+            self.check_rolling(node)
+
         self.generic_visit(node)
 
     def check_shift(self, node):
@@ -65,6 +68,18 @@ class LeakFinder(ast.NodeVisitor):
                 f"shift({value}) pulls {abs(value)} future rows backward",
                 "high",
             ))
+
+    def check_rolling(self, node):
+        for kw in node.keywords:
+            # center=1 would pass "== True" but isn't someone writing True,
+            # so check identity instead of equality.
+            if kw.arg == "center" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
+                self.findings.append(Finding(
+                    node.lineno,
+                    "rolling",
+                    "rolling(center=True) centers the window on future rows",
+                    "high",
+                ))
 
     def get_shift_argument(self, node):
         # pandas accepts both shift(-1) and shift(periods=-1)
