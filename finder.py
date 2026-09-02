@@ -1,154 +1,177 @@
 import ast
+import os
 import sys
 from collections import namedtuple
 
+Finding = namedtuple("Finding", ["line", "pattern", "msg", "conf"])
 
-Finding = namedtuple("Finding", ["line", "pattern", "message", "confidence"])
+RANK = {"high": 0, "low": 1}
+# enzo reminder, some pandas use backfill
+BACKFILL_METHODS = {"bfill", "backfill"}
+
+AGGREGATE_METHODS = {"mean", "std", "max", "min", "sum", "median", "var"}
+
+# if one of these ran first, an aggregate after it only looks backward by construction
+WINDOWED_METHODS = {"rolling", "expanding", "ewm"}
+
+SKIP_DIRS = {"venv", "site-packages", ".git", "node_modules"}
 
 
-LEAKY_METHODS = {
-    "bfill":    "backward fill pulls future values into earlier rows",
-    "backfill": "backward fill pulls future values into earlier rows",
-}
-
-
+# walks the ast looking for backtest code that peeks at future rows without running it
 class LeakFinder(ast.NodeVisitor):
 
-    def __init__(self, file_path):
-        self.file_path = file_path
+    def __init__(self, fpath):
+        self.fpath = fpath
         self.findings = []
 
-        # Counting these so I can check  how often the arg is smth i cant read
-        self.shifts_seen = 0
-        self.shifts_unresolvable = 0
+        
+        self.shift_count = 0
+        self.unknown_shifts = 0
+
+    def add_finding(self, line, pattern, message, confidence):
+        self.findings.append(Finding(line, pattern, message, confidence))
 
     def visit_Call(self, node):
+        # only method calls to object 
         if not isinstance(node.func, ast.Attribute):
             self.generic_visit(node)
             return
 
-        method_name = node.func.attr
+        name = node.func.attr
 
-        if method_name in LEAKY_METHODS:
-            self.findings.append(Finding(
-                node.lineno,
-                method_name,
-                LEAKY_METHODS[method_name],
-                "high",
-            ))
-
-        elif method_name == "shift":
+        if name in BACKFILL_METHODS:
+            self.add_finding(node.lineno, name, "backward fill pulls future values into earlier rows", "high")
+        elif name == "shift":
             self.check_shift(node)
-
-        elif method_name == "rolling":
+        elif name == "rolling":
             self.check_rolling(node)
+        elif name in AGGREGATE_METHODS:
+            self.check_aggregate(node, name)
 
+        # rucurse 
         self.generic_visit(node)
 
     def check_shift(self, node):
-        self.shifts_seen += 1
+        self.shift_count += 1
 
-        amount_node = self.get_shift_argument(node)
+        # pandas accepts shift(-1) or shift(periods=-1)
+        if node.args:
+            arg = node.args[0]
+        else:
+            arg = next((kw.value for kw in node.keywords if kw.arg == "periods"), None)
 
-        if amount_node is None:
-            return          # bare shift() defaults to 1, which is backward
+        # -1 isn't a single Constant node it's UnaryOp split the - and the 1
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, int):
+            n = arg.value
+        elif isinstance(arg, ast.UnaryOp) and isinstance(arg.op, ast.USub) and isinstance(arg.operand, ast.Constant) and isinstance(arg.operand.value, int):
+            n = -arg.operand.value
+        else:
+            n = None
 
-        value = self.literal_int(amount_node)
-
-        if value is None:
-            # shift(x), shift(n - 1), shift(cfg["lag"]) and friends.
-            # No way to know the sign without running it
-            self.shifts_unresolvable += 1
+        if n is None:
+            # e.g. shift(x) or shift(cfg["lag"]) - can't know the sign without running it
+            self.unknown_shifts += 1
             return
 
-        if value < 0:
-            self.findings.append(Finding(
-                node.lineno,
-                "shift",
-                f"shift({value}) pulls {abs(value)} future rows backward",
-                "high",
-            ))
+
+        if n < 0:
+            self.add_finding(node.lineno, "shift", f"shift({n}) pulls {abs(n)} future rows backward", "high")
 
     def check_rolling(self, node):
         for kw in node.keywords:
-            # center=1 would pass "== True" but isn't someone writing True,
-            # so check identity instead of equality.
+            # only a literal True counts - center=some_flag we can't read, center=1 probably isn't meant as True
             if kw.arg == "center" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
-                self.findings.append(Finding(
-                    node.lineno,
-                    "rolling",
-                    "rolling(center=True) centers the window on future rows",
-                    "high",
-                ))
+                self.add_finding(node.lineno, "rolling", "rolling(center=True) centers the window on future rows", "high")
 
-    def get_shift_argument(self, node):
-        # pandas accepts both shift(-1) and shift(periods=-1)
-        if node.args:
-            return node.args[0]
-
-        for kw in node.keywords:
-            if kw.arg == "periods":
-                return kw.value
-
-        return None
-
-    def literal_int(self, node):
-        if isinstance(node, ast.Constant) and isinstance(node.value, int):
-            return node.value
-
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-            operand = node.operand
-            if isinstance(operand, ast.Constant) and isinstance(operand.value, int):
-                return -operand.value
-
-        return None
+    def check_aggregate(self, node, name):
+        recv = node.func.value
+        if isinstance(recv, ast.Call) and isinstance(recv.func, ast.Attribute) and recv.func.attr in WINDOWED_METHODS:
+            return
+        # could feed a trading decision or just a printout - can't tell from the AST, so low confidence
+        self.add_finding(node.lineno, name, f"{name}() over the whole series pulls later rows into earlier decisions", "low")
 
 
-def analyze_file(file_path):
-    """Check one file. Returns the finder so the caller can read both
-    the findings and the shift stats. Returns None on error."""
+def sort_findings(findings):
+    return sorted(findings, key=lambda f: RANK[f.conf])
 
+
+def print_findings(fpath, findings):
+    for f in sort_findings(findings):
+        print(f"{fpath}:{f.line} [{f.conf}] {f.pattern} {f.msg}")
+
+
+def analyze_file(fpath, quiet=False):
     try:
-        with open(file_path, encoding="utf-8") as source_file:
-            source_code = source_file.read()
-    except (OSError, UnicodeDecodeError) as error:
-        print(f"could not read {file_path}: {error}")
+        with open(fpath, encoding="utf-8") as fh:
+            src = fh.read()
+    except (OSError, UnicodeDecodeError) as e:
+        print(f"could not read {fpath}: {e}")
         return None
 
     try:
-        tree = ast.parse(source_code, filename=file_path)
-    except SyntaxError as error:
-        print(f"could not parse {file_path}: {error}")
+        tree = ast.parse(src, filename=fpath)
+    except SyntaxError as e:
+        print(f"could not parse {fpath}: {e}")
         return None
 
-    finder = LeakFinder(file_path)
+    finder = LeakFinder(fpath)
     finder.visit(tree)
 
-    for f in finder.findings:
-        print(f"{file_path}:{f.line}  [{f.confidence}]  {f.pattern}  {f.message}")
+    if not quiet:
+        print_findings(fpath, finder.findings)
 
     return finder
 
-#Confidnece does nun rn, need kater
-file_paths = sys.argv[1:]
 
-if len(file_paths) == 0:
-    print("usage: python finder.py <file1.py> <file2.py> ...")
-else:
-    total_findings = 0
-    total_shifts = 0
-    total_unresolvable = 0
+def find_py_files(path):
+    if os.path.isfile(path):
+        return [path]
 
-    for path in file_paths:
-        finder = analyze_file(path)
+    found = []
+    for d, subdirs, files in os.walk(path):
+        # must mutate in place - subdirs = [...] makes a new list os.walk never sees, and pruning stops working
+        subdirs[:] = [s for s in subdirs if s not in SKIP_DIRS]
+        for fn in files:
+            if fn.endswith(".py"):
+                found.append(os.path.join(d, fn))
+    return found
+
+
+def print_summary(nfindings, nshifts, nbad):
+    print()
+    print(f"{nfindings} findings")
+    if nshifts > 0:
+        pct = 100 * nbad / nshifts
+        print(f"{nshifts} shift calls, {nbad} unreadable ({pct:.0f}%)")
+
+
+def main():
+    args = sys.argv[1:]
+    quiet = "--quiet" in args
+    paths = [a for a in args if a != "--quiet"]
+
+    if not paths:
+        print("usage: python finder.py [--quiet] <file_or_directory> ...")
+        return
+
+    fpaths = []
+    for p in paths:
+        fpaths.extend(find_py_files(p))
+
+    nfindings = 0
+    nshifts = 0
+    nbad = 0
+
+    for fpath in fpaths:
+        finder = analyze_file(fpath, quiet=quiet)
         if finder is None:
             continue
-        total_findings += len(finder.findings)
-        total_shifts += finder.shifts_seen
-        total_unresolvable += finder.shifts_unresolvable
+        nfindings += len(finder.findings)
+        nshifts += finder.shift_count
+        nbad += finder.unknown_shifts
 
-    print()
-    print(f"{total_findings} findings")
-    if total_shifts:
-        pct = 100 * total_unresolvable / total_shifts
-        print(f"{total_shifts} shift calls, {total_unresolvable} unreadable ({pct:.0f}%)")
+    print_summary(nfindings, nshifts, nbad)
+
+
+if __name__ == "__main__":
+    main()

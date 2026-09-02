@@ -1,0 +1,44 @@
+leakcheck baseline — 2026/09/01
+
+corpus: 5 repos, cloned depth 1 into corpus/ (gitignored)
+  backtrader                     (mementum/backtrader)
+  freqtrade-strategies           (freqtrade/freqtrade-strategies)
+  quant-trading                  (je-suis-tm/quant-trading)
+  QuantResearch                  (letianzj/QuantResearch)
+  algorithmic-trading-with-python (chrisconlan/algorithmic-trading-with-python)
+
+command: python3 finder.py corpus
+
+files checked: 590 .py files walked (venv/site-packages/.git/node_modules skipped)
+files that failed to read or parse: 1
+  corpus/quant-trading/Oil Money project/Oil Money NOK.py
+    unterminated string literal, line 132 — real syntax error in that file
+
+
+
+
+
+
+
+
+
+My findings :
+
+totals
+  246 shift() calls seen, 22 unresolvable (9%)
+  160 findings
+
+findings by pattern
+   45 std
+   42 mean
+   33 sum
+   19 max
+   16 min
+    4 shift
+    1 var
+    0 bfill / backfill
+    0 rolling(center=True)
+
+findings by confidence
+    4 high
+  156 low
