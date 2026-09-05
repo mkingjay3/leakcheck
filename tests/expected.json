@@ -1,23 +1,50 @@
 {
-  "leak_bfill.py":                        {"expect_high": true,  "expect_low": false},
-  "leak_backfill_method.py":              {"expect_high": true,  "expect_low": false},
-  "leak_shift_negative.py":               {"expect_high": true,  "expect_low": false},
-  "leak_shift_negative_periods_kwarg.py": {"expect_high": true,  "expect_low": false},
-  "leak_shift_large_negative.py":         {"expect_high": true,  "expect_low": false},
-  "leak_rolling_center.py":               {"expect_high": true,  "expect_low": false},
-  "leak_full_series_mean.py":             {"expect_high": false, "expect_low": true},
-  "leak_full_series_std.py":              {"expect_high": false, "expect_low": true},
-  "leak_full_series_max.py":              {"expect_high": false, "expect_low": true},
-  "leak_full_series_sum.py":              {"expect_high": false, "expect_low": true},
-  "clean_shift_positive.py":              {"expect_high": false, "expect_low": false},
-  "clean_shift_positive_periods_kwarg.py":{"expect_high": false, "expect_low": false},
-  "clean_shift_unknown.py":               {"expect_high": false, "expect_low": false},
-  "clean_rolling_mean.py":                {"expect_high": false, "expect_low": false},
-  "clean_rolling_center_false.py":        {"expect_high": false, "expect_low": false},
-  "clean_ffill_not_bfill.py":             {"expect_high": false, "expect_low": false},
-  "clean_aggregate_after_expanding.py":   {"expect_high": false, "expect_low": false},
-  "clean_aggregate_after_ewm.py":         {"expect_high": false, "expect_low": false},
-  "fp_posthoc_sharpe.py":                 {"expect_high": false, "expect_low": false},
-  "fp_manual_window.py":                  {"expect_high": false, "expect_low": false},
-  "fp_shift_bounded_slice.py":            {"expect_high": false, "expect_low": false}
+  "_comment": "Findings each case file SHOULD produce, worked out by reading finder.py's rules against the case file, not by running finder.py. A file that should stay silent gets an empty list. Matching in run_tests.py is on (line, pattern) only; conf here is used only to split precision/recall by confidence tier.",
+
+  "leak_bfill.py": [
+    {"line": 4, "pattern": "bfill", "conf": "high"}
+  ],
+  "leak_backfill_method.py": [
+    {"line": 4, "pattern": "backfill", "conf": "high"}
+  ],
+  "leak_shift_negative.py": [
+    {"line": 4, "pattern": "shift", "conf": "high"}
+  ],
+  "leak_shift_negative_periods_kwarg.py": [
+    {"line": 4, "pattern": "shift", "conf": "high"}
+  ],
+  "leak_shift_large_negative.py": [
+    {"line": 4, "pattern": "shift", "conf": "high"}
+  ],
+  "leak_rolling_center.py": [
+    {"line": 4, "pattern": "rolling", "conf": "high"}
+  ],
+  "leak_full_series_mean.py": [
+    {"line": 5, "pattern": "mean", "conf": "low"}
+  ],
+  "leak_full_series_std.py": [
+    {"line": 4, "pattern": "std", "conf": "low"}
+  ],
+  "leak_full_series_max.py": [
+    {"line": 4, "pattern": "max", "conf": "low"}
+  ],
+  "leak_full_series_sum.py": [
+    {"line": 4, "pattern": "sum", "conf": "low"}
+  ],
+
+  "clean_shift_positive.py": [],
+  "clean_shift_positive_periods_kwarg.py": [],
+  "clean_shift_bare.py": [],
+  "clean_shift_unknown.py": [],
+  "clean_rolling_mean.py": [],
+  "clean_rolling_center_false.py": [],
+  "clean_ffill_not_bfill.py": [],
+  "clean_aggregate_after_rolling.py": [],
+  "clean_aggregate_after_expanding.py": [],
+  "clean_aggregate_after_ewm.py": [],
+
+  "fp_posthoc_sharpe.py": [],
+  "fp_manual_window.py": [],
+  "fp_aggregate_bounded_by_slicing.py": [],
+  "fp_shift_bounded_slice.py": []
 }
