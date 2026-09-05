@@ -23,11 +23,22 @@ class Finding:
     self.conf = conf
 
 
+#true if expr is already bounded to a window, either through .rolling()/
+#.expanding()/.ewm() or through a manual slice like series[-20:]. a plain
+#series[some_key] lookup doesn't count, only an actual start:stop slice
+def isWindowed(expr):
+  if(isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute)):
+    if(expr.func.attr in windowedmethods):
+      return(True)
+  if(isinstance(expr, ast.Subscript) and isinstance(expr.slice, ast.Slice)):
+    return(True)
+  return(False)
+
+
 #walks the code looking for risky pandas calls
 class LeakFinder(ast.NodeVisitor):
 
-  def __init__(self, fpath):
-    self.fpath = fpath
+  def __init__(self):
     self.findings = []
     self.shiftcount = 0
     self.unknownshifts = 0
@@ -72,8 +83,9 @@ class LeakFinder(ast.NodeVisitor):
     if(isinstance(arg, ast.Constant) and isinstance(arg.value, int)):
       shiftamount = arg.value
     elif(isinstance(arg, ast.UnaryOp) and isinstance(arg.op, ast.USub)):
-      if(isinstance(arg.operand, ast.Constant) and isinstance(arg.operand.value, int)):
-        shiftamount = -arg.operand.value
+      operand = arg.operand
+      if(isinstance(operand, ast.Constant) and isinstance(operand.value, int)):
+        shiftamount = -operand.value
 
     if(shiftamount is None):
       #cant know the sign without running it, e.g shift(x)
@@ -92,8 +104,18 @@ class LeakFinder(ast.NodeVisitor):
 
   def checkAggregate(self, node, name):
     recv = node.func.value
-    if(isinstance(recv, ast.Call) and isinstance(recv.func, ast.Attribute) and recv.func.attr in windowedmethods):
-      return
+
+    #two call shapes reach here: series.mean() where recv is the series,
+    #and np.mean(series) where recv is just the "np" name and the series
+    #we actually care about is the first argument instead
+    candidates = [recv]
+    if(node.args):
+      candidates.append(node.args[0])
+
+    for candidate in candidates:
+      if(isWindowed(candidate)):
+        return
+
     #could feed a decision or just be a printout, cant tell from the tree so low confidence
     message = f"{name}() over the whole series pulls later rows into earlier decisions"
     self.addFinding(node.lineno, name, message, "low")
@@ -125,7 +147,7 @@ def analyzeFile(fpath, quiet=False):
     print(f"could not parse {fpath}: {e}")
     return(None)
 
-  finder = LeakFinder(fpath)
+  finder = LeakFinder()
   finder.visit(tree)
 
   if(not quiet):

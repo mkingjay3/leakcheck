@@ -8,6 +8,8 @@ from finder import analyzeFile
 casesdir = "tests/cases"
 expectedfile = "tests/expected.json"
 
+tiers = ["high", "low"]
+
 
 def loadExpected():
   f = open(expectedfile)
@@ -17,69 +19,80 @@ def loadExpected():
 
 
 def runOne(filename):
-  #returns (has_high, has_low) for one test file
+  #returns {"high": bool, "low": bool}, whether each tier fired at least once in this file
   path = os.path.join(casesdir, filename)
   finder = analyzeFile(path, quiet=True)
 
   if(finder is None):
-    return(None, None)
+    return(None)
 
   confs = []
   for finding in finder.findings:
     confs.append(finding.conf)
 
-  hashigh = "high" in confs
-  haslow = "low" in confs
-  return(hashigh, haslow)
+  got = {}
+  for tier in tiers:
+    got[tier] = tier in confs
+  return(got)
 
 
 def main():
   expected = loadExpected()
 
-  #counters for high confidence findings
-  truepos = 0
-  falsepos = 0
-  falseneg = 0
+  #true positives, false positives, false negatives, kept separately per tier
+  truepos = {tier: 0 for tier in tiers}
+  falsepos = {tier: 0 for tier in tiers}
+  falseneg = {tier: 0 for tier in tiers}
 
   failures = []
 
   for filename, want in sorted(expected.items()):
-    gothigh, gotlow = runOne(filename)
+    got = runOne(filename)
 
-    if(gothigh is None):
+    if(got is None):
       failures.append(f"{filename}: could not analyze")
       continue
 
-    wanthigh = want["expect_high"]
+    for tier in tiers:
+      wanttier = want.get(f"expect_{tier}", False)
+      gottier = got[tier]
 
-    if(wanthigh and gothigh):
-      truepos = truepos + 1
-    elif(wanthigh and not gothigh):
-      falseneg = falseneg + 1
-      failures.append(f"{filename}: expected a high finding, got none")
-    elif(not wanthigh and gothigh):
-      falsepos = falsepos + 1
-      failures.append(f"{filename}: flagged high, shouldn't have")
-
-    if("expect_low" in want):
-      if(want["expect_low"] != gotlow):
-        failures.append(f"{filename}: low finding expected={want['expect_low']} got={gotlow}")
+      if(wanttier and gottier):
+        truepos[tier] = truepos[tier] + 1
+      elif(wanttier and not gottier):
+        falseneg[tier] = falseneg[tier] + 1
+        failures.append(f"{filename}: expected a {tier} finding, got none")
+      elif(not wanttier and gottier):
+        falsepos[tier] = falsepos[tier] + 1
+        failures.append(f"{filename}: flagged {tier}, shouldn't have")
 
   print(f"{len(expected)} cases")
-  print(f"true positives  {truepos}")
-  print(f"false positives {falsepos}")
-  print(f"false negatives {falseneg}")
+  print()
 
-  if(truepos + falsepos > 0):
-    precision = truepos / (truepos + falsepos)
-    print(f"precision {round(precision * 100)}%")
+  for tier in tiers:
+    tp = truepos[tier]
+    fp = falsepos[tier]
+    fn = falseneg[tier]
+    print(f"[{tier}]")
+    print(f"  true positives  {tp}")
+    print(f"  false positives {fp}")
+    print(f"  false negatives {fn}")
 
-  if(truepos + falseneg > 0):
-    recall = truepos / (truepos + falseneg)
-    print(f"recall    {round(recall * 100)}%")
+    if(tp + fp > 0):
+      precision = tp / (tp + fp)
+      print(f"  precision {round(precision * 100)}%")
+    else:
+      print("  precision n/a (nothing flagged at this tier)")
+
+    if(tp + fn > 0):
+      recall = tp / (tp + fn)
+      print(f"  recall    {round(recall * 100)}%")
+    else:
+      print("  recall    n/a (nothing expected at this tier)")
+    print()
 
   if(failures):
-    print()
+    print("failures:")
     for line in failures:
       print("  " + line)
 

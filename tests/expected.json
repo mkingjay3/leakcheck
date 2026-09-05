@@ -1,10 +1,10 @@
 {
-  "leak_bfill.py":                        {"expect_high": true},
-  "leak_backfill_method.py":              {"expect_high": true},
-  "leak_shift_negative.py":               {"expect_high": true},
-  "leak_shift_negative_periods_kwarg.py": {"expect_high": true},
-  "leak_shift_large_negative.py":         {"expect_high": true},
-  "leak_rolling_center.py":               {"expect_high": true},
+  "leak_bfill.py":                        {"expect_high": true,  "expect_low": false},
+  "leak_backfill_method.py":              {"expect_high": true,  "expect_low": false},
+  "leak_shift_negative.py":               {"expect_high": true,  "expect_low": false},
+  "leak_shift_negative_periods_kwarg.py": {"expect_high": true,  "expect_low": false},
+  "leak_shift_large_negative.py":         {"expect_high": true,  "expect_low": false},
+  "leak_rolling_center.py":               {"expect_high": true,  "expect_low": false},
   "leak_full_series_mean.py":             {"expect_high": false, "expect_low": true},
   "leak_full_series_std.py":              {"expect_high": false, "expect_low": true},
   "leak_full_series_max.py":              {"expect_high": false, "expect_low": true},
@@ -18,5 +18,6 @@
   "clean_aggregate_after_expanding.py":   {"expect_high": false, "expect_low": false},
   "clean_aggregate_after_ewm.py":         {"expect_high": false, "expect_low": false},
   "fp_posthoc_sharpe.py":                 {"expect_high": false, "expect_low": false},
-  "fp_manual_window.py":                  {"expect_high": false, "expect_low": false}
+  "fp_manual_window.py":                  {"expect_high": false, "expect_low": false},
+  "fp_shift_bounded_slice.py":            {"expect_high": false, "expect_low": false}
 }

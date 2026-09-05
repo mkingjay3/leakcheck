@@ -1,0 +1,63 @@
+test harness baseline, 2026/09/04
+
+command: python3 run_tests.py
+21 cases (20 existing + fp_shift_bounded_slice.py, added to lock in the
+third known false-positive shape from review-notes.md)
+
+[high]
+  true positives  6
+  false positives 1
+  false negatives 0
+  precision 86%
+  recall    100%
+
+[low]
+  true positives  4
+  false positives 2
+  false negatives 0
+  precision 67%
+  recall    100%
+
+failures:
+  fp_manual_window.py: flagged low, shouldn't have
+  fp_posthoc_sharpe.py: flagged low, shouldn't have
+  fp_shift_bounded_slice.py: flagged high, shouldn't have
+
+Note this precision number is on the hand-written case corpus, not on
+the real corpus/ scan. 21 hand-written cases means the low tier's
+denominator is only 6 (4 TP + 2 FP), so 67% here is not the same claim
+as "0/5 real leaks out of 156 low findings" from the corpus run. The
+case corpus checks specific known shapes; it doesn't re-derive the
+corpus-wide hit rate. Both numbers matter but they answer different
+questions, this harness answers "did I break something I already
+found," the corpus sample answers "what fraction of real output is
+noise."
+
+
+after fixing the manual-slicing false positive (checkAggregate now
+also looks at the receiver's argument when the call is a bare
+np.func(x) form, and treats being sliced with a literal start:stop as
+already-windowed, same as rolling/expanding/ewm):
+
+[high]
+  true positives  6
+  false positives 1
+  false negatives 0
+  precision 86%
+  recall    100%
+
+[low]
+  true positives  4
+  false positives 1
+  false negatives 0
+  precision 80%
+  recall    100%
+
+failures:
+  fp_posthoc_sharpe.py: flagged low, shouldn't have
+  fp_shift_bounded_slice.py: flagged high, shouldn't have
+
+delta: low-tier precision 67% -> 80% (2 FP -> 1 FP). fp_manual_window.py
+now passes. fp_posthoc_sharpe.py and fp_shift_bounded_slice.py are left
+failing on purpose, they're the other two known shapes, not touched
+this round
