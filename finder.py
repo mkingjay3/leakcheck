@@ -12,6 +12,25 @@ WINDOWED_METHODS = ["rolling", "expanding", "ewm"]
 SKIP_DIRS = ["venv", "site-packages", ".git", "node_modules"]
 
 
+def extract_int_literal(node):
+    if isinstance(node, ast.Constant) and isinstance(node.value, int):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        if isinstance(node.operand, ast.Constant) and isinstance(node.operand.value, int):
+            return -node.operand.value
+    return None
+
+
+def is_windowed_expr(node):
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        return node.func.attr in WINDOWED_METHODS
+    # a manual slice like df.Close[-30:] bounds the data the same way
+    # rolling/expanding/ewm do, just without calling one of those methods
+    if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice):
+        return True
+    return False
+
+
 class Finding:
     def __init__(self, line, pattern, msg, conf):
         self.line = line
@@ -28,10 +47,47 @@ class LeakFinder(ast.NodeVisitor):
         self.findings = []
         self.shift_count = 0
         self.unknown_shifts = 0
+        self.known_ints = {}
+        self.windowed_names = set()
 
     def add_finding(self, line, pattern, message, confidence):
         finding = Finding(line, pattern, message, confidence)
         self.findings.append(finding)
+
+    # only resolves name = <int literal> / name = <windowed expr> at the
+    # top level of the file, not inside functions/branches/loops, and
+    # only if the name is assigned exactly once - anything more ambiguous
+    # is left unknown rather than guessed at
+    def collect_top_level_assignments(self, tree):
+        known_ints = {}
+        windowed_names = set()
+        seen_more_than_once = set()
+
+        for stmt in tree.body:
+            if not isinstance(stmt, ast.Assign):
+                continue
+            if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
+                continue
+
+            int_value = extract_int_literal(stmt.value)
+            windowed = is_windowed_expr(stmt.value)
+            if int_value is None and not windowed:
+                continue
+
+            name = stmt.targets[0].id
+            if name in known_ints or name in windowed_names or name in seen_more_than_once:
+                seen_more_than_once.add(name)
+                known_ints.pop(name, None)
+                windowed_names.discard(name)
+                continue
+
+            if int_value is not None:
+                known_ints[name] = int_value
+            else:
+                windowed_names.add(name)
+
+        self.known_ints = known_ints
+        self.windowed_names = windowed_names
 
     def visit_Call(self, node):
         # only interested in method calls on smth
@@ -66,12 +122,9 @@ class LeakFinder(ast.NodeVisitor):
                 if keyword.arg == "periods":
                     arg = keyword.value
 
-        shift_amount = None
-        if isinstance(arg, ast.Constant) and isinstance(arg.value, int):
-            shift_amount = arg.value
-        elif isinstance(arg, ast.UnaryOp) and isinstance(arg.op, ast.USub):
-            if isinstance(arg.operand, ast.Constant) and isinstance(arg.operand.value, int):
-                shift_amount = -arg.operand.value
+        shift_amount = extract_int_literal(arg)
+        if shift_amount is None and isinstance(arg, ast.Name):
+            shift_amount = self.known_ints.get(arg.id)
 
         if shift_amount is None:
             self.unknown_shifts = self.unknown_shifts + 1
@@ -92,18 +145,23 @@ class LeakFinder(ast.NodeVisitor):
 
     def check_aggregate(self, node, name):
         receiver = node.func.value
+        # np.std(x) puts the series in the first argument instead of the
+        # receiver, since the receiver is just the numpy module name
+        first_arg = node.args[0] if node.args else None
 
-        receiver_is_windowed = False
-        if isinstance(receiver, ast.Call) and isinstance(receiver.func, ast.Attribute):
-            if receiver.func.attr in WINDOWED_METHODS:
-                receiver_is_windowed = True
-
-        if receiver_is_windowed:
+        if self.is_already_windowed(receiver) or self.is_already_windowed(first_arg):
             return
 
         # could feed a trading decision or just a printout - can't tell from the AST, so low confidence
         message = f"{name}() over the whole series pulls later rows into earlier decisions"
         self.add_finding(node.lineno, name, message, "low")
+
+    def is_already_windowed(self, expr):
+        if expr is None:
+            return False
+        if is_windowed_expr(expr):
+            return True
+        return isinstance(expr, ast.Name) and expr.id in self.windowed_names
 
 
 def get_confidence_rank(finding):
@@ -135,6 +193,7 @@ def analyze_file(fpath, quiet=False):
         return None
 
     finder = LeakFinder(fpath)
+    finder.collect_top_level_assignments(tree)
     finder.visit(tree)
 
     if not quiet:

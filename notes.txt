@@ -61,3 +61,67 @@ delta: low-tier precision 67% -> 80% (2 FP -> 1 FP). fp_manual_window.py
 now passes. fp_posthoc_sharpe.py and fp_shift_bounded_slice.py are left
 failing on purpose, they're the other two known shapes, not touched
 this round
+
+
+2026/09/05 - the above manual-slicing fix was never actually in
+finder.py. Checked every commit in git history for check_aggregate;
+every version only ever looked at the receiver, never the first
+argument or a literal slice. Running fp_manual_window.py against any
+past commit reproduces the original false positive. The entry above
+documents work that got written up but not committed. Actually
+implementing it now, plus a second gap found alongside it.
+
+command: python3 run_tests.py
+
+before (23 cases, added leak_shift_negative_via_constant.py and
+clean_shift_reassigned_unknown.py this session for the shift(var) fix
+below):
+[low]
+  true positives  4
+  false positives 4
+  precision 50%
+failures: fp_manual_window.py, fp_aggregate_bounded_by_slicing.py,
+  fp_posthoc_sharpe.py, fp_shift_bounded_slice.py
+
+after:
+[low]
+  true positives  4
+  false positives 2
+  precision 67%
+failures: fp_posthoc_sharpe.py, fp_shift_bounded_slice.py (still left
+  alone on purpose - same reason as always, needs tracing whether a
+  value later feeds a comparison or signal, not readable off one call
+  node)
+
+what changed: check_aggregate now checks the call's first positional
+argument in addition to the receiver (np.std(x) puts the series in the
+argument, not the receiver, since the receiver is just the module
+name), and a literal slice (x[-30:]) counts as already-windowed, same
+as rolling/expanding/ewm. Also added collect_top_level_assignments,
+which scans a file's top-level statements for name = <windowed expr>
+and name = <int literal>, so two more cases resolve: window = x.iloc
+[-30:] followed by window.std() on a separate line (fixes
+fp_aggregate_bounded_by_slicing.py), and shift(lag) where lag = 3 is
+assigned once earlier in the file (fixes the case sample.py's comment
+calls out as unresolvable - it no longer is, for this narrow shape).
+Both trackers refuse to resolve a name that's assigned more than once
+anywhere at the top level, to avoid guessing wrong instead of silently
+picking one of several possible values.
+
+command: python3 finder.py corpus --quiet
+
+before: 160 findings (4 high, 156 low)
+after:  143 findings (4 high, 139 low)
+  std   45 -> 42
+  mean  42 -> 30
+  sum   33 -> 31
+  max, min, var, shift unchanged
+
+separately: baseline.txt says "22 unresolvable (9%)" shift calls.
+Checked out that exact commit's finder.py and ran it against today's
+corpus/ - it gives 47 unresolvable (19%), same as HEAD before today's
+changes, and today's changes don't touch shift-resolution logic in any
+way that could explain a jump. The corpus is unchanged (findings count
+matches baseline.txt's 160 exactly). So 22 was wrong the day it was
+written, not something that regressed since - baseline.txt's shift
+line needs correcting, its findings-count line does not.

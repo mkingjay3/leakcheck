@@ -16,6 +16,9 @@
   "leak_shift_large_negative.py": [
     {"line": 4, "pattern": "shift", "conf": "high"}
   ],
+  "leak_shift_negative_via_constant.py": [
+    {"line": 5, "pattern": "shift", "conf": "high"}
+  ],
   "leak_rolling_center.py": [
     {"line": 4, "pattern": "rolling", "conf": "high"}
   ],
@@ -36,6 +39,7 @@
   "clean_shift_positive_periods_kwarg.py": [],
   "clean_shift_bare.py": [],
   "clean_shift_unknown.py": [],
+  "clean_shift_reassigned_unknown.py": [],
   "clean_rolling_mean.py": [],
   "clean_rolling_center_false.py": [],
   "clean_ffill_not_bfill.py": [],
