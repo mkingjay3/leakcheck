@@ -1,4 +1,7 @@
-leakcheck baseline — 2026/09/01
+leakcheck baseline (first) — 2026/09/01
+this section is kept as a historical record, not the number to diff
+against next time. See the 2026/09/08 section below for that, and for
+a correction to the "22 unresolvable" line below.
 
 corpus: 5 repos, cloned depth 1 into corpus/ (gitignored)
   backtrader                     (mementum/backtrader)
@@ -42,3 +45,45 @@ findings by pattern
 findings by confidence
     4 high
   156 low
+
+
+leakcheck baseline (updated) — 2026/09/08
+
+Same 5 repos, same corpus/ (unchanged — 590 .py files walked, same 1
+file failing to parse). finder.py changed since 09/01:
+check_aggregate now also checks a call's first positional argument
+and recognizes a literal slice as already-windowed, and top-level
+name = <windowed expr> / name = <int literal> assignments are tracked
+and resolved (see notes.txt, 2026/09/05 entry, for what changed and
+why). This is the number to diff against next time.
+
+command: python3 finder.py corpus --quiet
+
+totals
+  246 shift() calls seen, 47 unresolvable (19%)
+  143 findings
+
+findings by pattern
+   42 std
+   31 sum
+   30 mean
+   19 max
+   16 min
+    4 shift
+    1 var
+    0 bfill / backfill
+    0 rolling(center=True)
+
+findings by confidence
+    4 high
+  139 low
+
+correction: the 09/01 section above says "22 unresolvable (9%)" for
+shift calls. That number was wrong the day it was written — checking
+out that exact commit and running it against this same corpus gives
+47 unresolvable, not 22. shift-resolution logic is unchanged by
+today's fixes (those touched check_aggregate and shift(<simple top-
+level variable>), not the unresolvable-count logic), so 47 is not a
+regression, it's what the 09/01 code actually produced then too. The
+09/01 findings totals (160, 4 high / 156 low) are correct and match
+a from-scratch run of that commit's code against this corpus.
