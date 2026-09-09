@@ -38,7 +38,7 @@
   "clean_shift_positive.py": [],
   "clean_shift_positive_periods_kwarg.py": [],
   "clean_shift_bare.py": [],
-  "clean_shift_unknown.py": [],
+  "clean_shift_positive_via_constant.py": [],
   "clean_shift_reassigned_unknown.py": [],
   "clean_rolling_mean.py": [],
   "clean_rolling_center_false.py": [],

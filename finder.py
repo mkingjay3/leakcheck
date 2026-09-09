@@ -84,8 +84,7 @@ class Finding:
 # walks the code's syntax tree
 class LeakFinder(ast.NodeVisitor):
 
-    def __init__(self, fpath):
-        self.fpath = fpath
+    def __init__(self):
         self.findings = []
         self.shift_count = 0
         self.unknown_shifts = 0
@@ -154,6 +153,11 @@ class LeakFinder(ast.NodeVisitor):
 
     def check_shift(self, node):
         self.shift_count = self.shift_count + 1
+
+        # shifting within an already-bounded slice/window just reindexes
+        # inside known history, same reasoning as check_aggregate
+        if self.is_already_windowed(node.func.value):
+            return
 
         # pandas accepts shift(-1) or shift(periods=-1)
         arg = None
@@ -233,12 +237,14 @@ def sort_findings(findings):
     return sorted(findings, key=get_confidence_rank)
 
 
-def print_findings(fpath, findings):
+def print_findings(fpath, findings, show_low):
     for finding in sort_findings(findings):
+        if finding.conf == "low" and not show_low:
+            continue
         print(f"{fpath}:{finding.line} [{finding.conf}] {finding.pattern} {finding.msg}")
 
 
-def analyze_file(fpath, quiet=False):
+def analyze_file(fpath, quiet=False, show_low=False):
     try:
         source_file = open(fpath, encoding="utf-8")
         src = source_file.read()
@@ -255,12 +261,12 @@ def analyze_file(fpath, quiet=False):
 
     annotate_parents(tree)
 
-    finder = LeakFinder(fpath)
+    finder = LeakFinder()
     finder.collect_top_level_assignments(tree)
     finder.visit(tree)
 
     if not quiet:
-        print_findings(fpath, finder.findings)
+        print_findings(fpath, finder.findings, show_low)
 
     return finder
 
@@ -283,9 +289,13 @@ def find_py_files(path):
     return found
 
 
-def print_summary(total_findings, total_shifts, total_unreadable_shifts):
+def print_summary(total_high, total_low, show_low, total_shifts, total_unreadable_shifts):
     print()
-    print(f"{total_findings} findings")
+    print(f"{total_high} high-confidence findings")
+    if show_low:
+        print(f"{total_low} low-confidence findings")
+    else:
+        print(f"{total_low} low-confidence findings not shown (pass --low to show them)")
     if total_shifts > 0:
         percent_unreadable = round(100 * total_unreadable_shifts / total_shifts)
         print(f"{total_shifts} shift calls, {total_unreadable_shifts} unreadable ({percent_unreadable}%)")
@@ -293,35 +303,45 @@ def print_summary(total_findings, total_shifts, total_unreadable_shifts):
 
 def main():
     args = sys.argv[1:]
+    flags = ("--quiet", "--low")
     quiet = "--quiet" in args
+    show_low = "--low" in args
 
     paths = []
     for arg in args:
-        if arg != "--quiet":
+        if arg not in flags:
             paths.append(arg)
 
     if not paths:
-        print("usage: python finder.py [--quiet] <file_or_directory> ...")
+        print("usage: python finder.py [--quiet] [--low] <file_or_directory> ...")
         return
 
     fpaths = []
     for path in paths:
         fpaths.extend(find_py_files(path))
 
-    total_findings = 0
+    total_high = 0
+    total_low = 0
     total_shifts = 0
     total_unreadable_shifts = 0
 
     for fpath in fpaths:
-        finder = analyze_file(fpath, quiet=quiet)
+        finder = analyze_file(fpath, quiet=quiet, show_low=show_low)
         if finder is None:
             continue
-        total_findings = total_findings + len(finder.findings)
+        for finding in finder.findings:
+            if finding.conf == "high":
+                total_high = total_high + 1
+            else:
+                total_low = total_low + 1
         total_shifts = total_shifts + finder.shift_count
         total_unreadable_shifts = total_unreadable_shifts + finder.unknown_shifts
 
-    print_summary(total_findings, total_shifts, total_unreadable_shifts)
+    print_summary(total_high, total_low, show_low, total_shifts, total_unreadable_shifts)
 
 
 if __name__ == "__main__":
     main()
+
+
+ 

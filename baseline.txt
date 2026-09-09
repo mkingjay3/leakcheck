@@ -99,3 +99,41 @@ level variable>), not the unresolvable-count logic), so 47 is not a
 regression, it's what the 09/01 code actually produced then too. The
 09/01 findings totals (160, 4 high / 156 low) are correct and match
 a from-scratch run of that commit's code against this corpus.
+
+
+leakcheck baseline (updated) — 2026/09/09
+
+Same 5 repos, same corpus/, same 1 file failing to parse. One detection
+change since 09/08: check_shift now checks its own receiver for
+windowing the same way check_aggregate does (notes.txt, 2026/09/09
+entry) - closes the last known test failure and, on this corpus,
+removes 2 of the 4 high-confidence findings (both were the turtle.py
+false positive fp_shift_bounded_slice.py was modeled on; the 2 real
+Shooting Star backtest.py findings are unaffected). This is the number
+to diff against next time.
+
+Also: low-confidence findings no longer print by default (--low to
+show them). That's a display change, not a detection one - it doesn't
+change finder.findings or these counts, only what `python3 finder.py`
+prints without --quiet.
+
+command: python3 finder.py corpus --quiet --low
+
+totals
+  246 shift() calls seen, 47 unresolvable (19%)
+  106 findings
+
+findings by pattern
+   25 std
+   23 sum
+   22 mean
+   17 max
+   16 min
+    2 shift
+    1 var
+    0 bfill / backfill
+    0 rolling(center=True)
+
+findings by confidence
+    2 high
+  104 low

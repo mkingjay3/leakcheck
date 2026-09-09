@@ -294,3 +294,58 @@ default or move behind a flag, now that its real hit rate has read
 close to 0% on two independent samples (0/5, then ~0/8) despite three
 rounds of fixes this session. Not acted on - a display decision, not a
 detection one, raised but deferred.
+
+
+2026/09/09 - cleared the cheap backlog: the shift-windowing gap, the
+dead self.fpath attribute, the stale test name, and the low-confidence
+display decision from the entry above.
+
+1. check_shift now calls self.is_already_windowed(node.func.value)
+   before anything else - same method check_aggregate already uses,
+   no new detection code. Closes fp_shift_bounded_slice.py, the last
+   remaining test failure. Verified on the real corpus, not just the
+   synthetic case: the two turtle.py shift(-1) findings (the ones this
+   test case was modeled on) are gone; the two Shooting Star
+   backtest.py shift(-1) findings notes.txt already confirmed as real
+   leaks are untouched. High-confidence corpus findings went 4 -> 2,
+   both of which are the real ones.
+
+   command: python3 run_tests.py
+   before: 26 cases, 1 failing (fp_shift_bounded_slice.py), 92%/100%
+   after: 27 cases (see #3 below), 0 failing, 100%/100% on both tiers
+   - first 100% this session.
+
+2. removed self.fpath from LeakFinder.__init__ and the constructor
+   argument that only fed it - never read anywhere, print_findings
+   already takes the path as its own parameter. LeakFinder() now takes
+   no arguments. Pure deletion, no behavior change.
+
+3. renamed tests/cases/clean_shift_unknown.py to
+   clean_shift_positive_via_constant.py (git mv, history preserved) -
+   lag=3 has resolved via collect_top_level_assignments since the
+   2026/09/05 fix, so the file wasn't testing an unknown shift anymore,
+   it was silently retesting the same "positive shift, no finding"
+   path as clean_shift_positive.py, just via a different route. Added
+   a comment explaining why, updated tests/expected.json's key.
+
+4. low-confidence findings no longer print by default. Added --low to
+   opt back in; --quiet still suppresses all per-line output
+   regardless. Detection is unchanged - finder.findings still holds
+   both tiers always, only print_findings/print_summary filter, so
+   run_tests.py (which reads finder.findings directly, never
+   print_findings) needed no changes. Default summary now reports
+   high/low counts separately and tells you low findings exist and how
+   to see them, instead of one blended number:
+     2 high-confidence findings
+     104 low-confidence findings not shown (pass --low to show them)
+   Closes the standing question from the entry above - given the real
+   hit rate read near 0% on two independent samples despite three
+   rounds of fixes, hiding it by default and requiring an explicit
+   flag seemed better than continuing to tune detection against
+   whichever shape got sampled last.
+
+command: python3 finder.py corpus --quiet
+before: 108 findings (4 high, 104 low)
+after:  106 findings (2 high, 104 low) - only the shift fix changes
+  detection; the flag change doesn't affect finder.findings, only what
+  prints.
