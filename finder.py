@@ -8,6 +8,8 @@ BACKFILL_METHODS = ["bfill", "backfill"]
 
 AGGREGATE_METHODS = ["mean", "std", "max", "min", "sum", "median", "var"]
 WINDOWED_METHODS = ["rolling", "expanding", "ewm"]
+PLOTTING_METHODS = ["plot", "fill_between", "scatter", "bar", "barh", "hist",
+                     "pie", "boxplot", "imshow", "errorbar", "stem", "step"]
 
 SKIP_DIRS = ["venv", "site-packages", ".git", "node_modules"]
 
@@ -28,6 +30,46 @@ def is_windowed_expr(node):
     # rolling/expanding/ewm do, just without calling one of those methods
     if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice):
         return True
+    return False
+
+
+# ast doesn't link a node back to its parent, so walk the whole tree once
+# and stamp one on - lets check_aggregate ask "what statement is this call
+# actually part of" without carrying a stack through every visit_* call
+def annotate_parents(tree):
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            child.parent = parent
+
+
+# ast.stmt is the common base class for every statement node (Return,
+# Assign, If, For, ...), as opposed to ast.expr for expression nodes -
+# walking up .parent links until we hit one finds "the statement this
+# expression lives inside of"
+def enclosing_statement(node):
+    current = node
+    while current is not None and not isinstance(current, ast.stmt):
+        current = getattr(current, "parent", None)
+    return current
+
+
+# groupby().sum() etc. aggregates across a categorical grouping (e.g. by
+# country and year), not across time - "future rows leaking into earlier
+# decisions" doesn't apply to a result that isn't ordered in time
+def is_groupby_result(node):
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "groupby"
+
+
+# walks up from an aggregate call, within its own statement, looking for
+# a plotting call it's an argument to (e.g. ax.fill_between(x, y+std, ...))
+# - stops at the enclosing statement, same boundary as enclosing_statement
+def is_inside_plot_call(node):
+    current = getattr(node, "parent", None)
+    while current is not None and not isinstance(current, ast.stmt):
+        if isinstance(current, ast.Call) and isinstance(current.func, ast.Attribute):
+            if current.func.attr in PLOTTING_METHODS:
+                return True
+        current = getattr(current, "parent", None)
     return False
 
 
@@ -152,6 +194,25 @@ class LeakFinder(ast.NodeVisitor):
         if self.is_already_windowed(receiver) or self.is_already_windowed(first_arg):
             return
 
+        # a categorical/cross-sectional aggregate (e.g. by country and
+        # year), not a time-ordered one - the leak this tool looks for
+        # doesn't apply
+        if is_groupby_result(receiver):
+            return
+
+        # feeds a plotted band/line, not a trading decision
+        if is_inside_plot_call(node):
+            return
+
+        # computed and handed straight back out of the function via return,
+        # with nothing assigned into a dataframe column in this scope - a
+        # report value (Sharpe ratio, accuracy, ...), not a trading input.
+        # only catches a direct `return ...mean()...`, not one first
+        # assigned to a name and returned on a later line - narrow on
+        # purpose, see notes.txt 2026/09/08
+        if isinstance(enclosing_statement(node), ast.Return):
+            return
+
         # could feed a trading decision or just a printout - can't tell from the AST, so low confidence
         message = f"{name}() over the whole series pulls later rows into earlier decisions"
         self.add_finding(node.lineno, name, message, "low")
@@ -191,6 +252,8 @@ def analyze_file(fpath, quiet=False):
     except SyntaxError as error:
         print(f"could not parse {fpath}: {error}")
         return None
+
+    annotate_parents(tree)
 
     finder = LeakFinder(fpath)
     finder.collect_top_level_assignments(tree)

@@ -125,3 +125,172 @@ way that could explain a jump. The corpus is unchanged (findings count
 matches baseline.txt's 160 exactly). So 22 was wrong the day it was
 written, not something that regressed since - baseline.txt's shift
 line needs correcting, its findings-count line does not.
+
+
+2026/09/08 - post-hoc-reporting fix, the one review-notes.md flagged
+as real work and left alone on purpose ("Narrowing it to fire only
+when the aggregate feeds a comparison or a signal is the right fix").
+
+Checked the 4 real true-positive cases first (leak_full_series_std/
+max/sum.py) before picking a rule, because they don't feed a Compare
+at all - vol/high_water/total_volume get divided into a df column,
+never compared. A "only flag if compared" rule would have silently
+turned those into false negatives, the exact mistake review-notes.md
+warned about ("deleting it throws away four real true positives").
+So the rule implemented is narrower and different: suppress only when
+the aggregate call sits directly inside a `return` statement (walking
+up through wrapping arithmetic, via new ast parent-pointer annotation
+- see annotate_parents/enclosing_statement in finder.py) - a value
+handed straight back out of a function as its return value, with
+nothing assigned into a dataframe column in this scope, matches
+"report value" (Sharpe ratio, accuracy, ...) far more specifically
+than "not compared" does, and none of the 4 leak_full_series cases are
+inside a function at all, so the rule can't touch them.
+
+command: python3 run_tests.py
+before: [low] 4 tp, 2 fp, 67% - failing: fp_posthoc_sharpe.py,
+  fp_shift_bounded_slice.py
+after:  [low] 4 tp, 0 fp, 100% - failing: fp_shift_bounded_slice.py
+  only (shift-specific, untouched, not in scope for this fix)
+overall: 92% precision, 100% recall, up from 79%/100%
+
+command: python3 finder.py corpus --quiet
+before: 143 findings (4 high, 139 low)
+after:  130 findings (4 high, 126 low)
+  std 42->37, mean 30->25, sum 31->30, max 19->17
+  min/var/shift unchanged
+
+checked the two real corpus false positives review-notes.md named
+specifically, not just the synthetic test case:
+  portfolio.py average_active_trades (was line 335, mean) - fixed.
+    it's a property that returns the mean directly, exact match for
+    the rule.
+  Awesome Oscillator backtest.py:285 (std) - NOT fixed, still flags.
+    real shape is `stats['awesome sharpe'] = (...) / np.std(...)`,
+    assignment into a summary-table column, not a return. Structurally
+    identical to df['zscore'] = ... / vol from leak_full_series_std.py
+    - nothing in the syntax distinguishes a dataframe used to hold
+    one-off report numbers from one used to hold real per-row trading
+    data. This is the actual edge of what syntax alone can settle, not
+    a bug in the rule.
+
+known gap, left alone on purpose, same reasoning as before: the rule
+only looks at the call's immediate enclosing statement. `m =
+np.mean(x); return m / np.std(x)` (assign first, return the name on a
+later line) is not caught, only a direct `return ...mean()...` is.
+Tracing an assigned name forward to a later return would close this,
+same shape of problem as the shift(lag) and window-variable tracking
+already in collect_top_level_assignments, but scoped to a function
+body with a return instead of the module top level - reasonable next
+increment if this gap shows up in practice, not done today.
+
+fp_shift_bounded_slice.py remains the one open case, unrelated to
+check_aggregate - shift(-1) running on an already-bounded slice
+(df_hist.Close.iloc[-15:].shift(-1)), needs check_shift to recognize
+windowing the same way check_aggregate now does.
+
+
+2026/09/08 (later same day) - manual re-sample of the low tier after
+both fixes above, same method as the original review: random.seed(42),
+8 of the current 126 low findings, read each by hand.
+
+0 (arguably 1 of 8, see below) were real leaks. Same order of magnitude
+as the original 0/5 - the corpus count dropping 160 -> 130 and the case
+suite hitting 100% did not move real-world precision on a fresh sample.
+The false-positive causes here are different from what got fixed and
+harder:
+  market_profile.py:99 (max) - plotly axis range, pure visualization
+  mean_reversion.py:36 (std) - inside hurst(), a Hurst-exponent
+    estimate across many lags - research/diagnostic, not clearly a
+    live signal. Least certain of the 8, flagged as borderline rather
+    than a clean false positive.
+  Monte Carlo backtest.py:225 (mean), :255 (std) - both derived from
+    df, which is already train_test_split(..., shuffle=False)'d
+    before either line runs. Bounded to the train chunk; the split
+    happens through a function call, not a local slice or rolling()
+    call, so nothing currently tracks it.
+  Oil Money CAD.py:358, :366 (std) - np.std(m.resid) used to draw a
+    1-sigma / 2-sigma band on a matplotlib plot. Post-hoc reporting,
+    same category as the return-statement fix, but via a plotting
+    call instead of a return - the return rule doesn't reach it.
+  Pair trading backtest.py:157 (mean) - model.resid, where model was
+    fit on signals['asset1'].iloc[i-bandwidth:i] two lines earlier.
+    Genuinely bounded, but only visible by tracing through a function
+    call's return value and then an attribute access on it - a
+    two-hop trace, well past what collect_top_level_assignments does.
+  country selection.py:138 (sum) - .groupby(['Area','Year']).sum(),
+    a categorical cross-sectional aggregation (trade by country/year),
+    not a time-series statistic at all. The detector's whole framing
+    ("future rows leaking into earlier decisions") doesn't apply to
+    this shape - a groupby result isn't ordered in time the way a
+    price column is.
+
+standing question from the 09/01 review, still open: is the low tier
+worth keeping. Four real true positives (leak_full_series_*) argue
+yes. An apparent ~0% real hit rate on two independent 8-and-5-sample
+reads of the corpus argues the noise is still overwhelming right now.
+Neither of today's fixes addressed a cause that showed up in this
+second sample - train/test-split bounding, plotting context, and
+groupby aggregation are three new shapes, not variants of manual-
+slicing or post-hoc-return. Worth deciding deliberately rather than
+by default next time this comes up, rather than continuing to fix
+whichever shape was sampled last.
+
+
+2026/09/08 (later still) - acted on two of the six shapes from the
+8-sample read above: groupby (country selection.py) and plotting
+context (Oil Money CAD.py). Skipped the other two real ones
+(train/test-split bounding in Monte Carlo backtest.py, model.resid in
+Pair trading backtest.py) on purpose - see reasoning below.
+
+what changed: is_groupby_result() suppresses an aggregate whose
+receiver is a .groupby(...) call - a categorical/cross-sectional
+aggregate (by country and year here) isn't a time-ordered stat at all,
+so the leak this tool looks for doesn't apply, independent of any
+windowing question. is_inside_plot_call() walks up an aggregate call's
+ancestors, within its own statement, and suppresses it if it's an
+argument to a plotting method (plot, fill_between, scatter, bar, hist,
+...) - a value feeding a chart isn't a trading decision, same
+reasoning as the return-statement fix but reached through a plot call
+instead of a return.
+
+command: python3 run_tests.py
+before: [low] 4 tp, 0 fp, 100% (from the return-statement fix earlier
+  today) - fp_shift_bounded_slice.py the only failure
+after: unchanged pass/fail - 100% was already the ceiling on the
+  existing case suite, added clean_aggregate_after_groupby.py and
+  fp_aggregate_in_plot_call.py to lock in the two new shapes, both
+  pass
+
+command: python3 finder.py corpus --quiet
+before: 130 findings (4 high, 126 low)
+after:  108 findings (4 high, 104 low)
+  std 37->25, mean 25->22, sum 30->23, max/min/var/shift unchanged
+confirmed both real samples: country selection.py and Oil Money
+CAD.py both go from their sampled findings to zero findings in the
+whole file.
+
+why the other two weren't touched:
+  train/test-split bounding (Monte Carlo backtest.py:225,255) - the
+  bounded name is df (from train_test_split(..., shuffle=False)), but
+  the aggregate runs on returnn, built from df two arithmetic hops
+  later (np.log(df['Close'].iloc[1:]/df['Close'].shift(1)...)).
+  Catching this needs propagating "boundedness" through arbitrary
+  expressions, and a value built from one bounded input mixed with
+  something unbounded would get the same treatment - that's a real
+  false-negative risk, not just an unfixed false positive.
+  model.resid (Pair trading backtest.py:157) - same problem one layer
+  worse: model comes from a call to an arbitrary local function
+  (method(...)) fed a windowed argument. Treating "any function fed a
+  bounded arg returns something bounded" as a rule is a broad
+  assumption about function behavior this tool has no way to check,
+  and review-notes.md already rejected a shallow pattern match fitted
+  to this corpus for the same reason once (the original post-hoc-
+  reporting decision). Left as a documented gap rather than guessed
+  at.
+
+separate, undecided: whether low-confidence findings should print by
+default or move behind a flag, now that its real hit rate has read
+close to 0% on two independent samples (0/5, then ~0/8) despite three
+rounds of fixes this session. Not acted on - a display decision, not a
+detection one, raised but deferred.

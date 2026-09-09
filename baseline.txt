@@ -47,27 +47,39 @@ findings by confidence
   156 low
 
 
-leakcheck baseline (updated) — 2026/09/08
+leakcheck baseline (updated) — 2026/09/08, updated three times this date
 
 Same 5 repos, same corpus/ (unchanged — 590 .py files walked, same 1
-file failing to parse). finder.py changed since 09/01:
-check_aggregate now also checks a call's first positional argument
-and recognizes a literal slice as already-windowed, and top-level
-name = <windowed expr> / name = <int literal> assignments are tracked
-and resolved (see notes.txt, 2026/09/05 entry, for what changed and
-why). This is the number to diff against next time.
+file failing to parse). finder.py changed since 09/01, in three rounds
+on the same day:
+  1. check_aggregate checks a call's first positional argument and
+     recognizes a literal slice as already-windowed; top-level
+     name = <windowed expr> / name = <int literal> assignments are
+     tracked and resolved (notes.txt, 2026/09/05 entry).
+  2. check_aggregate also suppresses a finding when the call sits
+     directly inside a `return` statement - a value handed straight
+     back out of a function, never assigned into a dataframe column
+     in that scope (notes.txt, 2026/09/08 entry, includes a real
+     corpus case this doesn't catch and why).
+  3. check_aggregate also suppresses a groupby(...) result (categorical,
+     not time-ordered) and an aggregate used as an argument to a
+     plotting call (feeds a chart, not a decision). Two other shapes
+     found in the same manual sample - train/test-split bounding and
+     model.resid tracing - were deliberately left alone; see notes.txt,
+     2026/09/08 entries, for why (false-negative risk, not effort).
+This is the number to diff against next time.
 
 command: python3 finder.py corpus --quiet
 
 totals
   246 shift() calls seen, 47 unresolvable (19%)
-  143 findings
+  108 findings
 
 findings by pattern
-   42 std
-   31 sum
-   30 mean
-   19 max
+   25 std
+   23 sum
+   22 mean
+   17 max
    16 min
     4 shift
     1 var
@@ -76,7 +88,7 @@ findings by pattern
 
 findings by confidence
     4 high
-  139 low
+  104 low
 
 correction: the 09/01 section above says "22 unresolvable (9%)" for
 shift calls. That number was wrong the day it was written — checking
