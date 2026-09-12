@@ -1,0 +1,233 @@
+{
+  "corpus/QuantResearch/backtest/bt/mebane_faber_taa.py:114:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "backtrader data.get(0, nfast) returns the last nfast bars - a bounded lookback the windowing check cannot see",
+    "shape": "bounded_api_call",
+    "verdict": "not_leak"
+  },
+  "corpus/QuantResearch/backtest/bt/mebane_faber_taa.py:115:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "same data.get(0, nslow) bounded lookback as the line above",
+    "shape": "bounded_api_call",
+    "verdict": "not_leak"
+  },
+  "corpus/QuantResearch/dash/futures/commodity_futures_app.py:106:max": {
+    "conf": "low",
+    "pattern": "max",
+    "rationale": "second dashboard function, same High summary stat pattern",
+    "shape": "dashboard_dict",
+    "verdict": "not_leak"
+  },
+  "corpus/QuantResearch/dash/futures/commodity_futures_app.py:107:min": {
+    "conf": "low",
+    "pattern": "min",
+    "rationale": "second dashboard function, same Low summary stat pattern",
+    "shape": "dashboard_dict",
+    "verdict": "not_leak"
+  },
+  "corpus/QuantResearch/dash/futures/commodity_futures_app.py:109:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "second dashboard function, same SD summary stat pattern",
+    "shape": "dashboard_dict",
+    "verdict": "not_leak"
+  },
+  "corpus/QuantResearch/dash/futures/commodity_futures_app.py:62:max": {
+    "conf": "low",
+    "pattern": "max",
+    "rationale": "dash app writing a High summary stat into a plain dict for display, not a backtest decision",
+    "shape": "dashboard_dict",
+    "verdict": "not_leak"
+  },
+  "corpus/QuantResearch/dash/futures/commodity_futures_app.py:63:min": {
+    "conf": "low",
+    "pattern": "min",
+    "rationale": "same dashboard row_dict, Low summary stat for display",
+    "shape": "dashboard_dict",
+    "verdict": "not_leak"
+  },
+  "corpus/QuantResearch/dash/futures/commodity_futures_app.py:65:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "same dashboard row_dict, SD over full history for a current-snapshot z-score display",
+    "shape": "dashboard_dict",
+    "verdict": "not_leak"
+  },
+  "corpus/QuantResearch/notebooks/q_learning.py:61:max": {
+    "conf": "low",
+    "pattern": "max",
+    "rationale": "Q-learning Bellman update, max over the action axis of a Q-table - no time axis involved",
+    "shape": "not_timeseries",
+    "verdict": "not_leak"
+  },
+  "corpus/algorithmic-trading-with-python/listings/chapter_6/6_1_loading_alternative_data.py:12:min": {
+    "conf": "low",
+    "pattern": "min",
+    "rationale": "min of a date index used to truncate one dataset to another date range, metadata not values",
+    "shape": "index_alignment",
+    "verdict": "not_leak"
+  },
+  "corpus/algorithmic-trading-with-python/listings/chapter_6/6_2_exploratory_analysis.py:10:min": {
+    "conf": "low",
+    "pattern": "min",
+    "rationale": "same index-range alignment before any backtest runs",
+    "shape": "index_alignment",
+    "verdict": "not_leak"
+  },
+  "corpus/algorithmic-trading-with-python/src/pypm/ml_model/data_io.py:14:min": {
+    "conf": "low",
+    "pattern": "min",
+    "rationale": "same index-range alignment inside load_data",
+    "shape": "index_alignment",
+    "verdict": "not_leak"
+  },
+  "corpus/freqtrade-strategies/user_data/strategies/lookahead_bias/Zeus.py:102:max": {
+    "conf": "low",
+    "pattern": "max",
+    "rationale": "repo readme documents this as planted lookahead bias: min/max normalizing trend_ichimoku_base over the full frame",
+    "shape": "whole_series_normalization",
+    "verdict": "leak"
+  },
+  "corpus/freqtrade-strategies/user_data/strategies/lookahead_bias/Zeus.py:102:min": {
+    "conf": "low",
+    "pattern": "min",
+    "rationale": "same documented Zeus normalization, second tib.min() term in the denominator",
+    "shape": "whole_series_normalization",
+    "verdict": "leak"
+  },
+  "corpus/freqtrade-strategies/user_data/strategies/lookahead_bias/Zeus.py:104:max": {
+    "conf": "low",
+    "pattern": "max",
+    "rationale": "repo readme documents this: min/max normalizing trend_kst_diff over the full frame",
+    "shape": "whole_series_normalization",
+    "verdict": "leak"
+  },
+  "corpus/freqtrade-strategies/user_data/strategies/lookahead_bias/Zeus.py:104:min": {
+    "conf": "low",
+    "pattern": "min",
+    "rationale": "same documented Zeus normalization, second tkd.min() term in the denominator",
+    "shape": "whole_series_normalization",
+    "verdict": "leak"
+  },
+  "corpus/quant-trading/Awesome Oscillator backtest.py:285:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "stats() builds a summary DataFrame after the backtest, sharpe denominator not fed back into any decision",
+    "shape": "report_frame",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/Awesome Oscillator backtest.py:286:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "same stats() summary frame, macd sharpe denominator",
+    "shape": "report_frame",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/Heikin-Ashi backtest.py:334:max": {
+    "conf": "low",
+    "pattern": "max",
+    "rationale": "stats() report frame, max of portfolio return for the summary table",
+    "shape": "report_frame",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/Heikin-Ashi backtest.py:335:min": {
+    "conf": "low",
+    "pattern": "min",
+    "rationale": "stats() report frame, min of portfolio return for the summary table",
+    "shape": "report_frame",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/Heikin-Ashi backtest.py:342:sum": {
+    "conf": "low",
+    "pattern": "sum",
+    "rationale": "stats() report frame, sum inside the reported standard deviation",
+    "shape": "report_frame",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/Monte Carlo project/Monte Carlo backtest.py:255:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "df is the train half of train_test_split(shuffle=False); picks best-fit simulation against known train data",
+    "shape": "train_split_bounded",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/Oil Money project/Oil Money Trading backtest.py:127:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "X and Y are both sliced to [i-train_len:i], so the residual std covers only the training window",
+    "shape": "bounded_by_fit_window",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/Pair trading backtest.py:157:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "model was fit on signals[asset1].iloc[i-bandwidth:i], so model.resid covers only that past window",
+    "shape": "bounded_by_fit_window",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/Pair trading backtest.py:157:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "same bounded model.resid, std term",
+    "shape": "bounded_by_fit_window",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/Pair trading backtest.py:162:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "same bounded model.resid, upper threshold",
+    "shape": "bounded_by_fit_window",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/Pair trading backtest.py:163:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "same bounded model.resid, lower threshold",
+    "shape": "bounded_by_fit_window",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/Shooting Star backtest.py:42:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "mean body size over the entire frame used as the per-row threshold classifying each candle in condition3",
+    "shape": "whole_series_threshold",
+    "verdict": "leak"
+  },
+  "corpus/quant-trading/Shooting Star backtest.py:58:shift": {
+    "conf": "high",
+    "pattern": "shift",
+    "rationale": "shift(-1) on High pulls the next candle into the current row to define condition7",
+    "shape": "future_row_access",
+    "verdict": "leak"
+  },
+  "corpus/quant-trading/Shooting Star backtest.py:63:shift": {
+    "conf": "high",
+    "pattern": "shift",
+    "rationale": "shift(-1) on Close pulls the next candle into the current row to define condition8",
+    "shape": "future_row_access",
+    "verdict": "leak"
+  },
+  "corpus/quant-trading/Smart Farmers project/forecast.py:229:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "mean of cost samples used as a dict key in a parameter search, no time axis",
+    "shape": "dict_write",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/VIX Calculator.py:341:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "mean across option contracts at one strike at a single point in time, not across time",
+    "shape": "cross_sectional",
+    "verdict": "not_leak"
+  },
+  "corpus/quant-trading/VIX Calculator.py:346:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "same put/call average across the rear-month option chain",
+    "shape": "cross_sectional",
+    "verdict": "not_leak"
+  }
+}

@@ -448,3 +448,91 @@ recall intact, and it did not fix the hit rate. Two of the four
 remaining shapes need type information rather than more syntax rules,
 which is a real ceiling on this approach and worth knowing before
 anyone spends another round on pattern matching.
+
+
+2026/09/11 (later) - CENSUS. Read all 35 findings, not a sample. The
+result contradicts every sample taken before it.
+
+  tier   findings  leaks  not leaks  hand-verified precision
+  high          2      2          0  2/2
+  low          33      7         26  7/33  (21%)
+
+low-tier precision is 21%, not 0%. Three prior 8-finding samples all
+read 0/8 and I wrote "third sample in a row at roughly zero" in the
+entry above. That was wrong. The census did not tighten a confidence
+interval around zero, it reversed the sign of the conclusion. Sampling
+8 of 33 three times never once drew a true positive, which is possible
+at this rate and is exactly the failure mode a census removes. Verdicts
+and one-line rationales for all 35 are in audit.json, so the claim is
+checkable by someone who did not run it.
+
+the 7 low-tier true positives:
+  Zeus.py:102 and :104, six findings across the two lines. This is the
+  find of the project. corpus/freqtrade-strategies/user_data/strategies/
+  lookahead_bias/ is a folder of strategies with DELIBERATELY PLANTED
+  lookahead bias, shipped with a readme.md whose spoiler section names
+  each bug. For Zeus it says: "uses .min() and .max() to normalize
+  trend_ichimoku_base as well as trend_kst_diff." Those are exactly
+  lines 102 and 104, exactly what the tool flagged. This is independent
+  ground truth, written by the corpus author, not by me.
+  Shooting Star backtest.py:42. np.mean(df['Open']-df['Close']) over
+  the whole frame, used through np.where as the per-row threshold
+  deciding whether each candle has a small body. Textbook shape: one
+  number from all rows deciding every earlier row. Same file already
+  had the two confirmed high-tier shift(-1) findings, so the file has
+  two independent leaks by two different mechanisms.
+
+RECALL, measured against that same independent ground truth - and this
+is the other thing the census bought. The readme documents four planted
+strategies. The tool catches one:
+  Zeus          caught (6 findings)
+  DevilStra     MISSED - normalize(): df = (df-df.min())/(df.max()-df.min())
+  GodStraNew    MISSED - identical normalize() helper
+  wtc           MISSED - sklearn MinMaxScaler, a different mechanism
+                and arguably out of scope for an aggregate checker
+1 of 3 on the min/max shape the tool is actually aimed at.
+
+why DevilStra and GodStraNew are missed, and it is my doing: the
+allowlist inversion earlier today. Their aggregate sits in a helper,
+  def normalize(df):
+      df = (df-df.min())/(df.max()-df.min())
+      return df
+The statement assigns to a plain name, not a column, and inside that
+function the name only reaches a return. reaches_decision correctly
+finds no evidence of a decision IN THAT SCOPE - the column write
+happens at the call site, in a different scope. Zeus survives only
+because it inlines the same arithmetic directly into a
+dataframe['...'] = ... assignment. So the inversion bought 10 of 13
+known false positives and cost at least 2 documented true positives,
+and the blacklist would have caught both. That is a real recall cost
+that no amount of precision measurement would have surfaced - it took
+ground truth the corpus handed me.
+
+taxonomy of the 26 false positives, grouped by the rationale field in
+audit.json:
+   6  dashboard_dict        dash app writing summary stats into a plain
+                            dict for display
+   5  report_frame          stats() building a post-hoc summary frame
+   5  bounded_by_fit_window model fit on an explicitly sliced window,
+                            residual stats inherit that bound
+   3  index_alignment       min of a DATE INDEX to align two datasets,
+                            metadata about the range not a value
+   2  bounded_api_call      backtrader data.get(0, n) lookback
+   2  cross_sectional       mean across option contracts at one strike
+   1  not_timeseries        Q-learning max over a Q-table action axis
+   1  train_split_bounded   train half of train_test_split
+   1  dict_write            mean used as a dict key in a param search
+
+two of these are new since the 09/08 sample and neither is a "hard"
+shape: index_alignment (3) is an aggregate over the index rather than
+over values, and dashboard_dict (6) is the dict-vs-frame ambiguity
+again but now the single largest group. dict-vs-frame is 7 of 26 once
+dict_write is included - the biggest single cause, and the one that is
+genuinely undecidable without knowing whether the subscript target is a
+DataFrame or a dict.
+
+methodology note worth keeping: the census cost a few hours and
+overturned a conclusion three samples agreed on. Every number in the
+three entries above that says "0 of N" describes the sample, not the
+instrument. I am leaving those entries as written rather than editing
+them, because the sequence is the point.
