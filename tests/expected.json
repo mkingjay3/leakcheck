@@ -34,6 +34,9 @@
   "leak_full_series_sum.py": [
     {"line": 4, "pattern": "sum", "conf": "low"}
   ],
+  "leak_full_series_compare.py": [
+    {"line": 9, "pattern": "mean", "conf": "low"}
+  ],
 
   "clean_shift_positive.py": [],
   "clean_shift_positive_periods_kwarg.py": [],
@@ -47,10 +50,12 @@
   "clean_aggregate_after_expanding.py": [],
   "clean_aggregate_after_ewm.py": [],
   "clean_aggregate_after_groupby.py": [],
+  "clean_aggregate_axis_one.py": [],
 
   "fp_posthoc_sharpe.py": [],
   "fp_manual_window.py": [],
   "fp_aggregate_bounded_by_slicing.py": [],
   "fp_shift_bounded_slice.py": [],
-  "fp_aggregate_in_plot_call.py": []
+  "fp_aggregate_in_plot_call.py": [],
+  "fp_aggregate_never_decided_on.py": []
 }

@@ -8,8 +8,6 @@ BACKFILL_METHODS = ["bfill", "backfill"]
 
 AGGREGATE_METHODS = ["mean", "std", "max", "min", "sum", "median", "var"]
 WINDOWED_METHODS = ["rolling", "expanding", "ewm"]
-PLOTTING_METHODS = ["plot", "fill_between", "scatter", "bar", "barh", "hist",
-                     "pie", "boxplot", "imshow", "errorbar", "stem", "step"]
 
 SKIP_DIRS = ["venv", "site-packages", ".git", "node_modules"]
 
@@ -42,17 +40,6 @@ def annotate_parents(tree):
             child.parent = parent
 
 
-# ast.stmt is the common base class for every statement node (Return,
-# Assign, If, For, ...), as opposed to ast.expr for expression nodes -
-# walking up .parent links until we hit one finds "the statement this
-# expression lives inside of"
-def enclosing_statement(node):
-    current = node
-    while current is not None and not isinstance(current, ast.stmt):
-        current = getattr(current, "parent", None)
-    return current
-
-
 # groupby().sum() etc. aggregates across a categorical grouping (e.g. by
 # country and year), not across time - "future rows leaking into earlier
 # decisions" doesn't apply to a result that isn't ordered in time
@@ -60,16 +47,90 @@ def is_groupby_result(node):
     return isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "groupby"
 
 
-# walks up from an aggregate call, within its own statement, looking for
-# a plotting call it's an argument to (e.g. ax.fill_between(x, y+std, ...))
-# - stops at the enclosing statement, same boundary as enclosing_statement
-def is_inside_plot_call(node):
+# mean(axis=1) averages across columns within each row, so it can't mix
+# one row's data into another's - cross-sectional by construction, the
+# same reason groupby results don't apply
+def is_cross_sectional(node):
+    for keyword in node.keywords:
+        if keyword.arg == "axis" and extract_int_literal(keyword.value) == 1:
+            return True
+    return False
+
+
+def enclosing_scope(node):
     current = getattr(node, "parent", None)
-    while current is not None and not isinstance(current, ast.stmt):
-        if isinstance(current, ast.Call) and isinstance(current.func, ast.Attribute):
-            if current.func.attr in PLOTTING_METHODS:
-                return True
+    while current is not None:
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)):
+            return current
         current = getattr(current, "parent", None)
+    return None
+
+
+# Load ctx means the name is being read, not assigned - so the target of
+# `vol = ...` doesn't count as a reference to vol, only later uses do
+def references_name(node, name):
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Name) and sub.id == name and isinstance(sub.ctx, ast.Load):
+            return True
+    return False
+
+
+# writing into a frame column (df['x'] = ..., signals['z'].iloc[i:] = ...)
+# means the value is being applied across rows, which is what makes a
+# whole-series number a per-row decision input
+def is_column_write(stmt):
+    if isinstance(stmt, ast.Assign):
+        targets = stmt.targets
+    elif isinstance(stmt, ast.AugAssign):
+        targets = [stmt.target]
+    else:
+        return False
+
+    for target in targets:
+        for sub in ast.walk(target):
+            if isinstance(sub, ast.Subscript):
+                return True
+    return False
+
+
+# The positive test: can this value be shown to reach a time-ordered
+# decision? Two places count - a comparison (price > threshold) and a
+# write into a frame column (df['z'] = ... / vol), which applies one
+# number across every row. Everything else (returned, printed, plotted,
+# stashed in a scalar that nothing decides on) is not evidence of a
+# decision, so it isn't flagged.
+#
+# Traces one hop: the call itself, or a plain name assigned from it and
+# used later in the same scope. Two hops (a = x.mean(); b = a * 2;
+# df['c'] = b) is a known miss - see notes.txt 2026/09/11.
+def reaches_decision(node):
+    current = node
+    while current is not None and not isinstance(current, ast.stmt):
+        if isinstance(current, ast.Compare):
+            return True
+        current = getattr(current, "parent", None)
+
+    stmt = current
+    if stmt is None:
+        return False
+
+    if is_column_write(stmt):
+        return True
+
+    if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+        scope = enclosing_scope(node)
+        if scope is not None:
+            return name_feeds_decision(stmt.targets[0].id, scope)
+
+    return False
+
+
+def name_feeds_decision(name, scope):
+    for other in ast.walk(scope):
+        if isinstance(other, ast.Compare) and references_name(other, name):
+            return True
+        if is_column_write(other) and references_name(other.value, name):
+            return True
     return False
 
 
@@ -201,20 +262,12 @@ class LeakFinder(ast.NodeVisitor):
         # a categorical/cross-sectional aggregate (e.g. by country and
         # year), not a time-ordered one - the leak this tool looks for
         # doesn't apply
-        if is_groupby_result(receiver):
+        if is_groupby_result(receiver) or is_cross_sectional(node):
             return
 
-        # feeds a plotted band/line, not a trading decision
-        if is_inside_plot_call(node):
-            return
-
-        # computed and handed straight back out of the function via return,
-        # with nothing assigned into a dataframe column in this scope - a
-        # report value (Sharpe ratio, accuracy, ...), not a trading input.
-        # only catches a direct `return ...mean()...`, not one first
-        # assigned to a name and returned on a later line - narrow on
-        # purpose, see notes.txt 2026/09/08
-        if isinstance(enclosing_statement(node), ast.Return):
+        # nothing shows this number reaching a comparison or a column
+        # write, so there's no evidence it informs a decision
+        if not reaches_decision(node):
             return
 
         # could feed a trading decision or just a printout - can't tell from the AST, so low confidence

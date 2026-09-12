@@ -349,3 +349,102 @@ before: 108 findings (4 high, 104 low)
 after:  106 findings (2 high, 104 low) - only the shift fix changes
   detection; the flag change doesn't affect finder.findings, only what
   prints.
+
+
+2026/09/11 - inverted check_aggregate from a blacklist to an allowlist.
+This is the structural change the last four entries kept circling.
+
+the problem being solved: every fix up to now was negative space - flag
+everything, then suppress if windowed, if groupby, if plotted, if
+returned. Each manual sample turned up a shape the previous suppression
+rules didn't cover, so the list grew and the real hit rate never moved.
+A blacklist can only ever cover shapes somebody already sampled.
+
+the inversion: flag only when the value can be shown to reach a
+time-ordered decision. Two things count as evidence, and they came from
+reading what the confirmed true positives actually have in common, not
+from theory:
+  - a comparison (price > threshold), directly or via a name
+  - a write into a frame column (df['z'] = ... / vol), which is what
+    applies one number across every row
+Traced one hop: the call itself, or a plain name assigned from it and
+used later in the same scope (reaches_decision / name_feeds_decision /
+is_column_write / references_name in finder.py). Anything that is only
+returned, printed, plotted, or parked in a scalar nothing decides on is
+no longer evidence of a decision, so it isn't flagged.
+
+command: python3 run_tests.py
+before: 29 cases, 100%/100%
+after:  30 cases, 100%/100% - recall held on every known true positive,
+  including all four leak_full_series_* cases, which is the thing this
+  change could most easily have broken. Added
+  leak_full_series_compare.py (a real leak shape the suite never
+  covered - a whole-series mean gating an if, no column write in sight)
+  and fp_aggregate_never_decided_on.py.
+
+command: python3 finder.py corpus --quiet --low
+before: 106 findings (2 high, 104 low)
+after:   35 findings (2 high,  33 low)
+low-tier output down 68%. The 2 high findings are untouched, still the
+two confirmed-real Shooting Star backtest.py shifts.
+
+validated against all 13 findings hand-classified across both manual
+reviews (the 5 in review-notes.md 09/01 and the 8 from 09/08):
+10 of 13 now suppressed. The ones worth noting are the ones no rule
+ever targeted - Oil Money RUB.py:182 and Monte Carlo backtest.py:225
+are the train/test-split shape I explicitly declined to special-case on
+09/08, and market_profile.py:99 (plotly), mean_reversion.py:36 (hurst)
+and deep_learning.py:650 (accuracy) were never pattern-matched at all.
+That is the difference between a blacklist and a criterion: it covers
+shapes nobody sampled.
+
+dead code removed, with measurement rather than assumption: the
+return-statement rule and the whole plotting rule (PLOTTING_METHODS,
+is_inside_plot_call) are strictly subsumed by the new criterion -
+verified by disabling both and diffing the corpus run, 0 differences
+across 590 files, and all three targeted test cases still suppress.
+enclosing_statement went with them, now unused. The test cases stay:
+they assert behavior, which still holds, just through the general rule
+instead of a bespoke one.
+
+also added is_cross_sectional: mean(axis=1) averages across columns
+within a row, so it structurally cannot mix one row's data into
+another's - same reasoning as groupby. Found in the sample below, and
+principled rather than corpus-fitted, which is why it got implemented
+and the report-table shapes below did not.
+
+the number that matters, and it did NOT move:
+fresh hand-sample of 8 of the 37 remaining low findings (seed 42, same
+method as before): 0 of 8 were real leaks. Third sample in a row at
+roughly zero. Output volume is way down and 10 of 13 known false
+positives are gone, but a fresh read of what's left is still all false
+positives. Those are different claims and only the second one is the
+one this project said it cared about.
+
+what IS different: the residue is concentrated instead of scattered. All
+8 fall into four named shapes rather than eight unrelated ones:
+  report/stats frames (3/8) - Awesome Oscillator:286, Heikin-Ashi:334
+    and :335. A stats() function builds stats=pd.DataFrame([0]) and
+    writes summary numbers into it. Syntactically identical to writing
+    a signal column; the only tell is the function is named stats and
+    runs after the backtest, which is naming, not structure. Declined -
+    that is corpus fitting.
+  dict writes read as column writes (2/8) - commodity_futures_app.py:65
+    (row_dict['SD']) and forecast.py:229 (dic[np.mean(sample)]).
+    is_column_write sees any Subscript target, and a dict item
+    assignment looks exactly like a frame column write. Separating them
+    needs type information the AST doesn't carry.
+  bounded by an API call (1/8) - mebane_faber_taa.py:114,
+    np.mean(data.get(0, self.p.nfast)). backtrader's data.get(ago, size)
+    is a bounded lookback. The criterion is right that it reaches a
+    decision (if ma_fast > ma_slow), the windowing check just can't see
+    the bound - a different failure than before, where the decision
+    itself was the wrong part.
+  known hard case (1/8) - Pair trading backtest.py:157, unchanged.
+
+so the honest read: this fixed the thing it set out to fix (a criterion
+that generalizes past sampled shapes) and cut output by two thirds with
+recall intact, and it did not fix the hit rate. Two of the four
+remaining shapes need type information rather than more syntax rules,
+which is a real ceiling on this approach and worth knowing before
+anyone spends another round on pattern matching.

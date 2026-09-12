@@ -137,3 +137,44 @@ findings by pattern
 findings by confidence
     2 high
   104 low
+
+
+leakcheck baseline (updated) — 2026/09/11
+
+Same 5 repos, same corpus/, same 1 file failing to parse. One change,
+but a structural one: check_aggregate is now an allowlist instead of a
+blacklist. It flags only when the value can be shown to reach a
+comparison or a frame-column write, rather than flagging everything and
+suppressing known-innocent shapes one at a time. Plus is_cross_sectional
+(axis=1). See notes.txt, 2026/09/11, including the fresh hand-sample
+result, which is the part that did not improve. This is the number to
+diff against next time.
+
+command: python3 finder.py corpus --quiet --low
+
+totals
+  246 shift() calls seen, 47 unresolvable (19%)
+  35 findings
+
+findings by pattern
+   10 min
+    9 std
+    7 mean
+    6 max
+    2 shift
+    1 sum
+    0 var
+    0 bfill / backfill
+    0 rolling(center=True)
+
+findings by confidence
+    2 high
+   33 low
+
+context for the drop: 160 (09/01) -> 108 -> 106 -> 35. The last step is
+the allowlist inversion. Recall held - all 12 true positives in the case
+suite still flag, and both confirmed-real corpus findings (Shooting Star
+backtest.py) are untouched. A fresh 8-finding hand-sample of what
+remains still read 0/8 real leaks, so volume improved and hit rate did
+not; notes.txt names the four shapes the remainder falls into and which
+two of them need type information rather than more syntax rules.
