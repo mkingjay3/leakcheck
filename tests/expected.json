@@ -1,6 +1,26 @@
 {
   "_comment": "Findings each case file SHOULD produce, worked out by reading finder.py's rules against the case file, not by running finder.py. A file that should stay silent gets an empty list. Matching in run_tests.py is on (line, pattern) only; conf here is used only to split precision/recall by confidence tier.",
 
+  "_known_gaps_comment": "Real leaks that are out of scope for this version - the findings listed are what a detector covering them would report. They are excluded from precision and recall and printed as their own section, so the recall number above them is never read as 'catches everything'. See README.md and notes.txt 2026/09/12.",
+
+  "_known_gaps": {
+    "gap_full_series_mean.py": [
+      {"line": 6, "pattern": "mean", "conf": "low"}
+    ],
+    "gap_full_series_std.py": [
+      {"line": 5, "pattern": "std", "conf": "low"}
+    ],
+    "gap_full_series_max.py": [
+      {"line": 5, "pattern": "max", "conf": "low"}
+    ],
+    "gap_full_series_sum.py": [
+      {"line": 5, "pattern": "sum", "conf": "low"}
+    ],
+    "gap_full_series_compare.py": [
+      {"line": 10, "pattern": "mean", "conf": "low"}
+    ]
+  },
+
   "leak_bfill.py": [
     {"line": 4, "pattern": "bfill", "conf": "high"}
   ],
@@ -22,20 +42,16 @@
   "leak_rolling_center.py": [
     {"line": 4, "pattern": "rolling", "conf": "high"}
   ],
-  "leak_full_series_mean.py": [
-    {"line": 5, "pattern": "mean", "conf": "low"}
+  "leak_normalize_inline.py": [
+    {"line": 9, "pattern": "min", "conf": "low"},
+    {"line": 9, "pattern": "max", "conf": "low"}
   ],
-  "leak_full_series_std.py": [
-    {"line": 4, "pattern": "std", "conf": "low"}
+  "leak_normalize_helper.py": [
+    {"line": 10, "pattern": "min", "conf": "low"},
+    {"line": 10, "pattern": "max", "conf": "low"}
   ],
-  "leak_full_series_max.py": [
-    {"line": 4, "pattern": "max", "conf": "low"}
-  ],
-  "leak_full_series_sum.py": [
-    {"line": 4, "pattern": "sum", "conf": "low"}
-  ],
-  "leak_full_series_compare.py": [
-    {"line": 9, "pattern": "mean", "conf": "low"}
+  "leak_normalize_threshold.py": [
+    {"line": 8, "pattern": "mean", "conf": "low"}
   ],
 
   "clean_shift_positive.py": [],
@@ -51,11 +67,13 @@
   "clean_aggregate_after_ewm.py": [],
   "clean_aggregate_after_groupby.py": [],
   "clean_aggregate_axis_one.py": [],
+  "clean_normalize_bounded_slice.py": [],
 
   "fp_posthoc_sharpe.py": [],
   "fp_manual_window.py": [],
   "fp_aggregate_bounded_by_slicing.py": [],
   "fp_shift_bounded_slice.py": [],
   "fp_aggregate_in_plot_call.py": [],
-  "fp_aggregate_never_decided_on.py": []
+  "fp_aggregate_never_decided_on.py": [],
+  "fp_sum_in_sibling_lambda.py": []
 }

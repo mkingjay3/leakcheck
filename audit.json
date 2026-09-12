@@ -83,6 +83,34 @@
     "shape": "index_alignment",
     "verdict": "not_leak"
   },
+  "corpus/freqtrade-strategies/user_data/strategies/lookahead_bias/DevilStra.py:331:max": {
+    "conf": "low",
+    "pattern": "max",
+    "rationale": "repo readme documents DevilStra as planted lookahead bias: normalize() min/max over the full frame",
+    "shape": "whole_series_normalization",
+    "verdict": "leak"
+  },
+  "corpus/freqtrade-strategies/user_data/strategies/lookahead_bias/DevilStra.py:331:min": {
+    "conf": "low",
+    "pattern": "min",
+    "rationale": "same documented DevilStra normalize(), second df.min() in the denominator",
+    "shape": "whole_series_normalization",
+    "verdict": "leak"
+  },
+  "corpus/freqtrade-strategies/user_data/strategies/lookahead_bias/GodStraNew.py:256:max": {
+    "conf": "low",
+    "pattern": "max",
+    "rationale": "repo readme documents GodStraNew as planted lookahead bias: identical normalize() helper",
+    "shape": "whole_series_normalization",
+    "verdict": "leak"
+  },
+  "corpus/freqtrade-strategies/user_data/strategies/lookahead_bias/GodStraNew.py:256:min": {
+    "conf": "low",
+    "pattern": "min",
+    "rationale": "same documented GodStraNew normalize(), second df.min() in the denominator",
+    "shape": "whole_series_normalization",
+    "verdict": "leak"
+  },
   "corpus/freqtrade-strategies/user_data/strategies/lookahead_bias/Zeus.py:102:max": {
     "conf": "low",
     "pattern": "max",

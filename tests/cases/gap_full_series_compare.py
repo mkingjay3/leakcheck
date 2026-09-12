@@ -1,3 +1,4 @@
+# known gap: this leak is out of scope for the current detector, see README.md
 # the whole-series mean gates a branch directly, without ever being
 # written into a column - a decision made against a number computed
 # from rows that hadn't happened yet

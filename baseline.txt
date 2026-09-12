@@ -171,6 +171,10 @@ findings by confidence
     2 high
    33 low
 
+SUPERSEDED by the 2026/09/11 (census) section below - the allowlist
+inversion these numbers describe was missing two documented true
+positives. Kept for the sequence.
+
 context for the drop: 160 (09/01) -> 108 -> 106 -> 35. The last step is
 the allowlist inversion. Recall held - all 12 true positives in the case
 suite still flag, and both confirmed-real corpus findings (Shooting Star
@@ -178,3 +182,119 @@ backtest.py) are untouched. A fresh 8-finding hand-sample of what
 remains still read 0/8 real leaks, so volume improved and hit rate did
 not; notes.txt names the four shapes the remainder falls into and which
 two of them need type information rather than more syntax rules.
+
+
+leakcheck baseline (census) — 2026/09/11
+
+Same 5 repos, same corpus/, same 1 file failing to parse. Two changes
+since the entry above: broadcasts_over_series (a whole-series statistic
+recombined element-wise with its own series is a per-row value that
+depends on every row - restores the DevilStra/GodStraNew normalize()
+leaks the allowlist inversion was missing), and that check stopping at
+lambda/comprehension boundaries. See notes.txt, 2026/09/11 entries.
+
+This is the first baseline where every finding has been hand-read.
+
+command: python3 finder.py corpus --quiet --low
+
+totals
+  246 shift() calls seen, 47 unresolvable (19%)
+  41 findings, across 37 distinct (file, line, pattern) sites
+
+findings by pattern
+   14 min
+    9 std
+    8 max
+    7 mean
+    2 shift
+    1 sum
+    0 var
+    0 bfill / backfill
+    0 rolling(center=True)
+
+findings by confidence
+    2 high
+   39 low
+
+HAND-VERIFIED PRECISION (census, not sample - every finding read,
+verdicts and rationales in audit.json, reproduce with
+`python3 audit.py report`)
+
+  tier   findings  leaks  not leaks  precision
+  high          2      2          0  2/2    100%
+  low          39     13         26  13/39   33%
+
+RECALL against independent ground truth: corpus/freqtrade-strategies/
+user_data/strategies/lookahead_bias/ ships four strategies with
+deliberately planted lookahead bias and a readme naming each bug. The
+tool catches 3 of 4 - Zeus, DevilStra, GodStraNew. It misses wtc, which
+uses an sklearn MinMaxScaler rather than a pandas aggregate, a
+mechanism this tool does not look for. 3 of 3 on the min/max shape it
+does target.
+
+history: 160 (09/01) -> 108 -> 106 -> 35 -> 41. The last step is an
+increase on purpose: the census found the allowlist inversion had
+dropped two documented true positives, and restoring them added 6
+findings, all true positives.
+
+
+leakcheck baseline (scope cut) — 2026/09/12
+
+Same 5 repos, same corpus/ (590 .py files walked, same 1 file failing to
+parse). One change, and it is a deletion: the 09/11 allowlist criterion
+(reaches_decision - "the value reaches a comparison or a column write")
+is gone, along with is_groupby_result and is_cross_sectional, which stop
+being needed once the broadcast search is scoped to the assigned value.
+What is left is the broadcast criterion alone: a whole-series statistic
+combined back into the series it came from. See notes.txt, 2026/09/12.
+
+Also: findings are now one per (file, line, pattern), so the findings
+count and the site count are the same number. Low-confidence findings
+print by default again and --low is gone.
+
+command: python3 finder.py corpus
+
+totals
+  246 shift() calls seen, 47 unresolvable (19%)
+  11 findings, across 11 distinct (file, line, pattern) sites
+
+findings by pattern
+    4 min
+    4 max
+    2 shift
+    1 mean
+    0 std / sum / var
+    0 bfill / backfill
+    0 rolling(center=True)
+
+findings by confidence
+    2 high
+    9 low
+
+HAND-VERIFIED PRECISION — all 11 findings were already read and recorded
+in the 09/11 census, so audit.json covers every one of them with nothing
+unaudited (`python3 audit.py report`):
+
+  tier   findings  leaks  not leaks  precision
+  high          2      2          0  2/2    100%
+  low           9      9          0  9/9    100%
+
+Read that carefully. It is not an independent measurement. The 26 false
+positives it drops were judged before the criterion that produced them
+was deleted, which is real evidence; but the surviving criterion is
+unchanged code measured on the corpus it was written against. The number
+to watch is what a fresh corpus does to it.
+
+RECALL against independent ground truth, unchanged from the census:
+corpus/freqtrade-strategies/user_data/strategies/lookahead_bias/ ships
+four strategies with planted lookahead bias and a readme naming each bug.
+3 of 4 caught (Zeus, DevilStra, GodStraNew); wtc missed, sklearn
+MinMaxScaler, a mechanism this tool does not look for. 3 of 3 on the
+min/max shape it targets.
+
+What the cut cost: five leak shapes the tool used to catch are now out of
+scope, kept as tests/cases/gap_full_series_*.py and printed by
+run_tests.py every run. They never once matched a real leak in these 590
+files, and they produced all 26 census false positives.
+
+history: 160 (09/01) -> 108 -> 106 -> 35 -> 41 -> 11.

@@ -34,7 +34,7 @@ found," the corpus sample answers "what fraction of real output is
 noise."
 
 
-after fixing the manual-slicing false positive (checkAggregate now
+after fixing the manual-slicing false positive (check_aggregate now
 also looks at the receiver's argument when the call is a bare
 np.func(x) form, and treats being sliced with a literal start:stop as
 already-windowed, same as rolling/expanding/ewm):
@@ -73,9 +73,12 @@ implementing it now, plus a second gap found alongside it.
 
 command: python3 run_tests.py
 
-before (23 cases, added leak_shift_negative_via_constant.py and
-clean_shift_reassigned_unknown.py this session for the shift(var) fix
-below):
+before (this session took the suite from 21 cases to 26: it added
+leak_shift_negative_via_constant.py and clean_shift_reassigned_unknown.py
+for the shift(var) fix below, and also clean_aggregate_after_rolling.py,
+clean_shift_bare.py and fp_aggregate_bounded_by_slicing.py, which this
+entry originally didn't mention. The "23" written here can't be matched to
+any point in the file history - see the case-count correction at the end):
 [low]
   true positives  4
   false positives 4
@@ -311,9 +314,10 @@ display decision from the entry above.
    both of which are the real ones.
 
    command: python3 run_tests.py
-   before: 26 cases, 1 failing (fp_shift_bounded_slice.py), 92%/100%
-   after: 27 cases (see #3 below), 0 failing, 100%/100% on both tiers
-   - first 100% this session.
+   before: 28 cases, 1 failing (fp_shift_bounded_slice.py), 92%/100%
+   after: 28 cases, 0 failing, 100%/100% on both tiers - first 100% this
+   session. (Counts corrected 09/12: this read 26 -> 27, but #3 below is
+   a git mv, which cannot change how many cases there are.)
 
 2. removed self.fpath from LeakFinder.__init__ and the constructor
    argument that only fed it - never read anywhere, print_findings
@@ -374,13 +378,15 @@ returned, printed, plotted, or parked in a scalar nothing decides on is
 no longer evidence of a decision, so it isn't flagged.
 
 command: python3 run_tests.py
-before: 29 cases, 100%/100%
-after:  30 cases, 100%/100% - recall held on every known true positive,
+before: 28 cases, 100%/100%
+after:  31 cases, 100%/100% - recall held on every known true positive,
   including all four leak_full_series_* cases, which is the thing this
   change could most easily have broken. Added
   leak_full_series_compare.py (a real leak shape the suite never
-  covered - a whole-series mean gating an if, no column write in sight)
-  and fp_aggregate_never_decided_on.py.
+  covered - a whole-series mean gating an if, no column write in sight),
+  fp_aggregate_never_decided_on.py, and clean_aggregate_axis_one.py for
+  the is_cross_sectional check below. (Counts corrected 09/12: this read
+  29 -> 30 and named two of the three files.)
 
 command: python3 finder.py corpus --quiet --low
 before: 106 findings (2 high, 104 low)
@@ -414,7 +420,7 @@ principled rather than corpus-fitted, which is why it got implemented
 and the report-table shapes below did not.
 
 the number that matters, and it did NOT move:
-fresh hand-sample of 8 of the 37 remaining low findings (seed 42, same
+fresh hand-sample of 8 of the 33 remaining low findings (seed 42, same
 method as before): 0 of 8 were real leaks. Third sample in a row at
 roughly zero. Output volume is way down and 10 of 13 known false
 positives are gone, but a fresh read of what's left is still all false
@@ -440,7 +446,10 @@ what IS different: the residue is concentrated instead of scattered. All
     decision (if ma_fast > ma_slow), the windowing check just can't see
     the bound - a different failure than before, where the decision
     itself was the wrong part.
-  known hard case (1/8) - Pair trading backtest.py:157, unchanged.
+  known hard case (2/8) - Pair trading backtest.py:157, which flags
+    twice on that one line, once for the mean and once for the std.
+    Unchanged. (Corrected 09/12: this read 1/8, which made the four
+    shapes add up to 7 of 8 rather than 8.)
 
 so the honest read: this fixed the thing it set out to fix (a criterion
 that generalizes past sampled shapes) and cut output by two thirds with
@@ -536,3 +545,196 @@ overturned a conclusion three samples agreed on. Every number in the
 three entries above that says "0 of N" describes the sample, not the
 instrument. I am leaving those entries as written rather than editing
 them, because the sequence is the point.
+
+
+2026/09/11 (last) - fixed the recall regression the census exposed,
+before moving on to tiering. Restoring documented true positives, not
+pushing residue down.
+
+the fix: a whole-series statistic recombined element-wise with the
+series it came from - (df - df.min()) / (df.max() - df.min()) - is a
+per-row value that depends on every row. That is the leak itself, no
+matter where the result goes afterwards, which matters because in
+normalize() it goes out through a return into a caller's column write
+one scope away. broadcasts_over_series() tests whether the source
+series appears as a bare operand in the same expression, outside any
+aggregate call. np.mean(r) / np.std(r) never touches r outside the
+aggregates, so a scalar summary does not qualify and fp_posthoc_sharpe
+stays suppressed. This is an argument from semantics - broadcast
+against summary - not from the corpus.
+
+recall against the planted-bias ground truth, before -> after:
+  Zeus          caught   -> caught
+  DevilStra     MISSED   -> caught
+  GodStraNew    MISSED   -> caught
+  wtc           MISSED   -> MISSED (sklearn MinMaxScaler, a different
+                mechanism, out of scope for an aggregate checker)
+3 of 3 on the min/max shape the tool actually targets, 3 of 4 files.
+
+a bug I introduced and caught by re-censusing rather than by trusting
+the fix: the first version searched the whole statement and flagged six
+new findings in portfolio_optimization, all of them
+  cons = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0},
+          {'type': 'ineq', 'fun': lambda w: w})
+np.sum(w) is a constraint that portfolio weights sum to 1 - w is a
+vector across stocks, no time axis at all. It matched only because the
+SIBLING lambda in the same statement has a bare w, a different w in a
+different scope. broadcasts_over_series now stops at the innermost
+enclosing Lambda or comprehension, since those bind their own names.
+All six disappeared, both documented leaks stayed caught. Worth noting
+that the census is what caught this - 6 unaudited findings appearing
+where I expected 6 is what made me look.
+
+FINAL CENSUS, every finding read, verdicts in audit.json:
+
+  tier   findings  leaks  not leaks  hand-verified precision
+  high          2      2          0  2/2    (100%)
+  low          39     13         26  13/39  (33%)
+
+41 findings across 37 distinct (file, line, pattern) sites - four lines
+flag the same pattern twice, e.g. tib.min() appearing twice in one
+normalization. audit.json keys on sites, the report counts output
+lines; both numbers are real and they answer slightly different
+questions.
+
+low-tier precision went 21% -> 33% purely by adding true positives; the
+recall fix introduced zero new false positives once the lambda scoping
+was right. The 26 false positives and their taxonomy are unchanged from
+the census above.
+
+test suite: 32 cases, 100% precision and recall, including the new
+leak_normalize_helper.py which locks in the DevilStra/GodStraNew shape.
+
+where this leaves the two ceilings:
+  dict-vs-frame, 7 of 26 false positives (dashboard_dict 6 +
+    dict_write 1) - the single largest cause and genuinely undecidable
+    from syntax, since df['x'] = and d['x'] = are the same AST.
+  bounded-through-a-fit, 5 of 26 - model fit on a sliced window, stats
+    of its residuals inherit the bound.
+Those two are 12 of 26. They are the case for the undecidable tier and
+for runtime type resolution, and neither is a reason to write more
+syntax rules.
+
+
+2026/09/12 - cut the scope down to one specific problem. This is the
+entry where the project stops trying to be a general leak detector.
+
+what the census actually said, read again: of the 13 low-tier true
+positives, 12 were one shape - a whole-series statistic recombined with
+the series it came from, which broadcasts_over_series was written for on
+09/11. The 13th (Shooting Star:42) is the same shape reached through
+np.where. Every one of the 26 false positives came from the OTHER
+criterion, the 09/11 allowlist - reaches_decision, "this value gets
+compared or written into a column". On 590 files that criterion
+contributed 26 false positives and not one true positive the broadcast
+rule doesn't already find.
+
+so it is gone. Deleted from finder.py: reaches_decision,
+name_feeds_decision, is_column_write, references_name, enclosing_scope.
+is_groupby_result and is_cross_sectional went with them, which was the
+surprise - once the broadcast search is scoped to the assigned value
+rather than the whole statement, both stop mattering. mean(axis=1) is not
+flagged because `bm_ret` appears only as the write target in
+`bm_ret['x'] = bm_ret.mean(axis=1)`, not as a bare operand in the value,
+and a groupby result never appears bare either. Verified, not assumed:
+removing all seven changed nothing on the corpus beyond the intended
+drop, and clean_aggregate_after_groupby.py and clean_aggregate_axis_one.py
+still pass - now through the general criterion instead of a check written
+for them, the same thing that happened to the return and plotting rules.
+
+the problem the tool now claims to solve, and nothing wider:
+  high  bfill/backfill, shift(-n), rolling(center=True)
+  low   a whole-series statistic combined back into its own series
+
+command: python3 finder.py corpus
+before: 41 findings across 37 sites (2 high, 39 low)
+after:  11 findings across 11 sites (2 high,  9 low)
+246 shift calls, 47 unreadable (19%) - unchanged, shift logic untouched
+
+every one of the 11 was already hand-read in the 09/11 census and
+recorded in audit.json as a leak, so `python3 audit.py report` now reads
+2/2 high and 9/9 low with nothing unaudited. That is not an independent
+measurement and shouldn't be quoted as one - the deleted criterion's 26
+false positives were judged before it was deleted, which is good
+evidence, but the remaining criterion is the same code it was yesterday
+and this is still the corpus it was written against.
+
+recall against the planted-bias ground truth, unchanged: Zeus, DevilStra
+and GodStraNew caught, wtc still missed (sklearn MinMaxScaler, a
+different mechanism). 3 of 4 files, 3 of 3 on the min/max shape.
+
+what this cost, stated plainly instead of buried: five real leaks the
+tool used to catch, now out of scope. A whole-series stat parked in a
+scalar and divided into a column a line later -
+  vol = df['returns'].std()
+  df['zscore'] = df['returns'] / vol
+is a genuine leak and it is not detected any more. Those five cases are
+renamed leak_full_series_* -> gap_full_series_* and moved into a
+_known_gaps section in tests/expected.json. run_tests.py runs them,
+keeps them out of precision and recall, and prints them every single run
+under "known gaps", so the 100% above them can't be read as "catches
+everything". If one ever starts flagging, the harness says so.
+
+That trade is deliberate: on 590 real files the criterion that caught
+those five shapes never once caught a real leak, and produced all 26
+false positives. Closing the gap properly needs to know whether a
+subscript target is a DataFrame or a dict, which is the ceiling the
+census already named. It is not another syntax rule.
+
+  test suite: 31 cases, 100% precision and 100% recall, plus 5 known
+  gaps printed separately. Four new cases lock in the shapes that are
+  now the whole point: leak_normalize_inline.py (Zeus, inline),
+  leak_normalize_threshold.py (Shooting Star, via np.where),
+  clean_normalize_bounded_slice.py (same normalization over a bounded
+  slice, must stay quiet - this is what keeps the top-level
+  windowed-name tracking honest now that nothing else exercises it),
+  fp_sum_in_sibling_lambda.py (the lambda-scoping bug from 09/11, which
+  had no case file).
+
+two smaller things:
+  findings are now one per (line, pattern). tib.min() twice in one
+  normalization was two identical output lines saying the same thing,
+  which is where "41 findings across 37 sites" came from. One site, one
+  line - the two numbers are the same number now.
+  low-confidence findings print by default again, and --low is gone.
+  Hiding them on 09/09 was the right call when the tier was 104 findings
+  reading near 0%; it is the wrong call at 9 findings that are all real.
+  --quiet still prints the summary only.
+
+audit.json keeps all 37 records, including the 26 for findings the tool
+no longer emits. They are the evidence for the taxonomy and for why the
+criterion was cut, so deleting them would delete the argument.
+
+what is deliberately not being worked on: the dict-vs-frame ambiguity,
+bounded-through-a-fit, and the sklearn/MinMaxScaler mechanism. All three
+are named in the census, none is reachable with another AST pattern, and
+the project is better off with a narrow claim that holds than a wide one
+that doesn't.
+
+
+case-count correction - 2026/09/12
+
+The case counts in the 09/05, 09/09 and 09/11 entries were written from
+memory and were wrong; they are corrected in place above. Re-derived from
+the file-addition record rather than from memory:
+
+  git log --reverse --diff-filter=A --name-only -- tests/cases/
+
+  09/03  20  first cases
+  09/04  21  + fp_shift_bounded_slice.py
+  09/05  24  + clean_aggregate_after_rolling, clean_shift_bare,
+              fp_aggregate_bounded_by_slicing
+         26  + leak_shift_negative_via_constant,
+              clean_shift_reassigned_unknown (same session's work,
+              committed later under "add")
+  09/08  28  + clean_aggregate_after_groupby, fp_aggregate_in_plot_call
+  09/09  28  rename only
+  09/11  31  + leak_full_series_compare, fp_aggregate_never_decided_on,
+              clean_aggregate_axis_one
+         32  + leak_normalize_helper
+  09/12  36  + four new cases, of which 31 count and 5 are known gaps
+
+The commit dates and the session dates in this file don't line up, since
+several sessions' cases went in late in one commit ("bro i thought i
+commietd these"). Where they disagree, the file-addition record is what
+these numbers follow.

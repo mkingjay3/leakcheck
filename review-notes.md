@@ -1,4 +1,20 @@
+# Session writeup — 2026/09/01 to 09/04
 
+Historical. This is the judgment-call writeup from the session that built
+the test harness; `notes.txt` is the running log and the current record,
+and `README.md` states what the tool claims today.
+
+Two conclusions below were later overturned and are left as written:
+
+- The **0 out of 5** hand-sample of low-confidence findings. Three
+  8-finding samples agreed with it, and then a census of every finding on
+  2026/09/11 read 33%, not 0%. Sampling 8 of 33 repeatedly never drew a
+  true positive, which is what a census is for.
+- The argument for keeping the low tier **wide** ("narrowing it to fire
+  only when the aggregate feeds a comparison or a signal is the right
+  fix"). That narrowing was built on 09/11 and cut on 09/12: across 590
+  files it produced 26 false positives and no true positive the broadcast
+  criterion doesn't already find.
 
 ## What changed in finder.py
 
@@ -100,7 +116,7 @@ where shift(-1) runs on a slice already bounded to known history. It
 has an empty expected list, same as the other two false positive
 cases, and it fails right now. That is correct. Writing a case for a
 bug I already found by hand means the bug cannot quietly stop being
-caught. If checkShift changes later and this case starts passing
+caught. If check_shift changes later and this case starts passing
 without anyone touching the windowing logic, I want that to show up in
 the test output, not get discovered by rereading corpus output again.
 
@@ -119,7 +135,7 @@ Then I fixed the manual slicing false positive from dynamic_breakout_ii.py,
 where np.std(df_hist.Close[-lookback_days:]) gets flagged because the
 detector only recognizes rolling, expanding, and ewm as already
 windowed, and has no notion that a manual slice does the same job by
-hand. checkAggregate used to only look at the method receiver. A call
+hand. check_aggregate used to only look at the method receiver. A call
 like series.std() has the series sitting there, but a bare call like
 np.std(series) has the receiver as the numpy module name, with the
 series sitting in the first argument instead. So np.std wrapped around
@@ -155,9 +171,9 @@ deserves the same before and after treatment as the slicing fix, rather
 than getting rushed in at the end.
 
 Small cleanups along the way. self.fpath in LeakFinder was set in
-__init__ and never read, since printFindings already takes the path as
+__init__ and never read, since print_findings already takes the path as
 its own parameter. Removed the attribute and the constructor argument
 that only existed to feed it. Also wrapped the two long lines in
-checkShift and checkAggregate, mostly by pulling a nested attribute
+check_shift and check_aggregate, mostly by pulling a nested attribute
 access into a short local variable instead of reading it twice inline.
 

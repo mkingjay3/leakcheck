@@ -1,5 +1,3 @@
-
-
 import json
 import os
 import sys
@@ -9,20 +7,22 @@ from finder import analyze_file
 CASES_DIR = "tests/cases"
 EXPECTED_FILE = "tests/expected.json"
 CONFIDENCE_TIERS = ["high", "low"]
+KNOWN_GAPS_KEY = "_known_gaps"
 
 
 def load_expected():
     with open(EXPECTED_FILE) as f:
         expected = json.load(f)
-    real_cases = {}
+
+    gaps = expected.get(KNOWN_GAPS_KEY, {})
+    cases = {}
     for filename, findings in expected.items():
         if not filename.startswith("_"):
-            real_cases[filename] = findings
-    return real_cases
+            cases[filename] = findings
+    return cases, gaps
 
 
 def findings_as_keyed_dict(findings):
-
     keyed = {}
     for finding in findings:
         if isinstance(finding, dict):
@@ -52,7 +52,7 @@ def describe_finding_key(key, conf):
 
 
 def main():
-    expected = load_expected()
+    expected, known_gaps = load_expected()
     true_positive = {tier: 0 for tier in CONFIDENCE_TIERS}
     false_positive = {tier: 0 for tier in CONFIDENCE_TIERS}
     false_negative = {tier: 0 for tier in CONFIDENCE_TIERS}
@@ -107,12 +107,14 @@ def main():
             print(f"  missing:    {describe_finding_key(key, expected_keyed[key])}")
 
     print()
-    print_totals_and_precision(true_positive, false_positive, false_negative)
+    print_totals_and_precision(true_positive, false_positive, false_negative, len(expected))
+    print()
+    print_known_gaps(known_gaps)
 
     sys.exit(1 if any_case_failed else 0)
 
 
-def print_totals_and_precision(true_positive, false_positive, false_negative):
+def print_totals_and_precision(true_positive, false_positive, false_negative, case_count):
     total_tp = sum(true_positive.values())
     total_fp = sum(false_positive.values())
     total_fn = sum(false_negative.values())
@@ -127,7 +129,8 @@ def print_totals_and_precision(true_positive, false_positive, false_negative):
 
     if total_tp + total_fn > 0:
         overall_recall = total_tp / (total_tp + total_fn)
-        print(f"recall    {round(overall_recall * 100)}%")
+        print(f"recall    {round(overall_recall * 100)}%  (over {case_count} cases, "
+              f"known gaps excluded - see below)")
 
     print()
     print("precision by confidence tier:")
@@ -140,6 +143,27 @@ def print_totals_and_precision(true_positive, false_positive, false_negative):
             print(f"  {tier:<5} {round(precision * 100)}%  ({tp} tp, {fp} fp)")
         else:
             print(f"  {tier:<5} n/a  (nothing at this tier was flagged)")
+
+
+# leaks that are out of scope for this version. They are excluded from the
+# numbers above, so print them every run rather than letting a 100% recall
+# line stand on its own.
+def print_known_gaps(known_gaps):
+    print("known gaps (real leaks this version does not detect):")
+
+    now_detected = 0
+    for filename, missed in sorted(known_gaps.items()):
+        actual = run_one_case(filename)
+        described = ", ".join(
+            describe_finding_key(key, conf)
+            for key, conf in sorted(findings_as_keyed_dict(missed).items())
+        )
+        print(f"  {filename}  {described}")
+        if actual:
+            now_detected = now_detected + 1
+            print("    now detected - move it back into the expected cases")
+
+    print(f"  {len(known_gaps)} shapes, {now_detected} now detected")
 
 
 if __name__ == "__main__":

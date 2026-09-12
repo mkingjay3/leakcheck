@@ -1,4 +1,4 @@
-# lag resolves to 3 via collect_top_level_assignments - positive, so no
+# lag resolves to 3 via collect_top_level_names - positive, so no
 # finding either way, but this used to be named clean_shift_unknown.py
 # from before that resolution existed; renamed since the shift here
 # isn't actually unknown to the tool anymore

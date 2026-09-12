@@ -1,6 +1,6 @@
-# real shape from Monte Carlo backtest.py:225 - the stat is assigned to
-# a scalar that only feeds more scalars and a print, never a comparison
-# or a column write, so there's no evidence it informs a decision
+# real shape from Monte Carlo backtest.py:225 - a scalar summary. returns
+# never appears outside the aggregate calls, so nothing is broadcast back
+# over the series
 import numpy as np
 
 returns = load_returns()
