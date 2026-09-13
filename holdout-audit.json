@@ -1,0 +1,268 @@
+{
+  "holdout/PyPortfolioOpt/pypfopt/black_litterman.py:509:sum": {
+    "conf": "low",
+    "pattern": "sum",
+    "rationale": "raw_weights/raw_weights.sum(), same cross-sectional shape",
+    "shape": "weight_normalization",
+    "verdict": "not_leak"
+  },
+  "holdout/PyPortfolioOpt/pypfopt/black_litterman.py:55:sum": {
+    "conf": "low",
+    "pattern": "sum",
+    "rationale": "market caps into weights, across assets rather than down time",
+    "shape": "weight_normalization",
+    "verdict": "not_leak"
+  },
+  "holdout/PyPortfolioOpt/pypfopt/risk_models.py:274:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "(X - X.mean())*(Y - Y.mean()) is the definition of covariance, and the result is a matrix not a per-row signal",
+    "shape": "covariance_demean",
+    "verdict": "not_leak"
+  },
+  "holdout/PyPortfolioOpt/pypfopt/risk_models.py:560:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "X - X.mean(axis=0) de-means columns for a shrinkage estimator",
+    "shape": "covariance_demean",
+    "verdict": "not_leak"
+  },
+  "holdout/PyPortfolioOpt/pypfopt/risk_models.py:628:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "same de-meaning in the pi estimate",
+    "shape": "covariance_demean",
+    "verdict": "not_leak"
+  },
+  "holdout/PyPortfolioOpt/tests/test_expected_returns.py:24:bfill": {
+    "conf": "high",
+    "pattern": "bfill",
+    "rationale": "builds a price frame for a unit test",
+    "shape": "test_fixture",
+    "verdict": "not_leak"
+  },
+  "holdout/PyPortfolioOpt/tests/test_expected_returns.py:40:bfill": {
+    "conf": "high",
+    "pattern": "bfill",
+    "rationale": "same fixture",
+    "shape": "test_fixture",
+    "verdict": "not_leak"
+  },
+  "holdout/backtesting.py/backtesting/backtesting.py:1375:bfill": {
+    "conf": "high",
+    "pattern": "bfill",
+    "rationale": "bfill on the equity curve after the run finishes, feeding compute_stats",
+    "shape": "posthoc_stats",
+    "verdict": "not_leak"
+  },
+  "holdout/backtesting.py/backtesting/lib.py:367:shift": {
+    "conf": "high",
+    "pattern": "shift",
+    "rationale": "random_ohlc_data shuffles example data to fabricate a test frame; no decision",
+    "shape": "synthetic_data",
+    "verdict": "not_leak"
+  },
+  "holdout/backtesting.py/backtesting/lib.py:368:shift": {
+    "conf": "high",
+    "pattern": "shift",
+    "rationale": "same generator, the gaps term",
+    "shape": "synthetic_data",
+    "verdict": "not_leak"
+  },
+  "holdout/backtesting.py/backtesting/lib.py:473:bfill": {
+    "conf": "high",
+    "pattern": "bfill",
+    "rationale": "bfill after rolling().mean() fills the ATR warmup rows from later rows, and TrailingStrategy trades on it",
+    "shape": "warmup_backfill",
+    "verdict": "leak"
+  },
+  "holdout/backtesting.py/backtesting/test/_test.py:830:sum": {
+    "conf": "low",
+    "pattern": "sum",
+    "rationale": "size-weighted mean return over all trades, a summary by construction",
+    "shape": "weighted_average",
+    "verdict": "not_leak"
+  },
+  "holdout/backtesting.py/doc/examples/Trading with Machine Learning.py:105:shift": {
+    "conf": "high",
+    "pattern": "shift",
+    "rationale": "shift(-48) builds the supervised target; looking ahead is the point of a label",
+    "shape": "ml_label",
+    "verdict": "not_leak"
+  },
+  "holdout/jesse/jesse/indicators/sinwma.py:39:sum": {
+    "conf": "low",
+    "pattern": "sum",
+    "rationale": "sines/sines.sum() normalizes a fixed sine kernel built from np.sin; no time axis",
+    "shape": "kernel_normalization",
+    "verdict": "not_leak"
+  },
+  "holdout/jesse/jesse/indicators/trima.py:40:sum": {
+    "conf": "low",
+    "pattern": "sum",
+    "rationale": "weights/weights.sum() on a triangular kernel from np.arange; no time axis",
+    "shape": "kernel_normalization",
+    "verdict": "not_leak"
+  },
+  "holdout/jesse/jesse/utils.py:282:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "z_score() returns (series - mean(series)) / std(series) over the whole array; the textbook shape",
+    "shape": "whole_series_normalization",
+    "verdict": "leak"
+  },
+  "holdout/jesse/jesse/utils.py:282:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "the std half of the same z_score",
+    "shape": "whole_series_normalization",
+    "verdict": "leak"
+  },
+  "holdout/pybroker/skills/pybroker-model-trainer/assets/model_training_template.py:34:shift": {
+    "conf": "high",
+    "pattern": "shift",
+    "rationale": "forward return as the training target",
+    "shape": "ml_label",
+    "verdict": "not_leak"
+  },
+  "holdout/pybroker/skills/pybroker-multi-interval/assets/multi_interval_template.py:43:shift": {
+    "conf": "high",
+    "pattern": "shift",
+    "rationale": "df['target'] = close.pct_change().shift(-1), a training label",
+    "shape": "ml_label",
+    "verdict": "not_leak"
+  },
+  "holdout/quantstats/quantstats/_plotting/core.py:200:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "rescales returns by their own std to match benchmark volatility, for a chart",
+    "shape": "plot_rescale",
+    "verdict": "not_leak"
+  },
+  "holdout/quantstats/quantstats/_plotting/core.py:443:std": {
+    "conf": "low",
+    "pattern": "std",
+    "rationale": "same rescale in the other plotting entry point",
+    "shape": "plot_rescale",
+    "verdict": "not_leak"
+  },
+  "holdout/quantstats/quantstats/stats.py:3035:shift": {
+    "conf": "high",
+    "pattern": "shift",
+    "rationale": "aligns drawdown end dates in post-hoc analysis of a finished run",
+    "shape": "posthoc_stats",
+    "verdict": "not_leak"
+  },
+  "holdout/ta/ta/trend.py:273:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest TRIX/KST values depend on the whole history",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:274:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest TRIX/KST values depend on the whole history",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:414:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest values depend on the whole history (ichimoku span A)",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:432:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest values depend on the whole history (ichimoku span B)",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:500:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest TRIX/KST values depend on the whole history",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:502:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest TRIX/KST values depend on the whole history",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:511:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest TRIX/KST values depend on the whole history",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:513:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest TRIX/KST values depend on the whole history",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:522:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest TRIX/KST values depend on the whole history",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:524:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest TRIX/KST values depend on the whole history",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:533:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest TRIX/KST values depend on the whole history",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:535:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest TRIX/KST values depend on the whole history",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:600:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest values depend on the whole history (dpo)",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/trend.py:654:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "_mad is handed to rolling().apply(), so x is a window; the bound is at the call site, invisible here",
+    "shape": "bounded_by_caller",
+    "verdict": "not_leak"
+  },
+  "holdout/ta/ta/trend.py:896:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "shift(r, fill_value=close.mean()) fills the first r rows with the whole-series mean, so the earliest values depend on the whole history (vortex true range)",
+    "shape": "fill_value_warmup",
+    "verdict": "leak"
+  },
+  "holdout/ta/ta/utils.py:33:bfill": {
+    "conf": "high",
+    "pattern": "bfill",
+    "rationale": "_fillna backfills an indicator's warmup rows from later values, and every ta indicator with fillna=True goes through it",
+    "shape": "warmup_backfill",
+    "verdict": "leak"
+  }
+}

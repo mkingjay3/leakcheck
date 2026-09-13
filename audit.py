@@ -10,6 +10,9 @@ audit.json so the claim is checkable by someone who didn't run it.
   python3 audit.py record <id> <verdict> <shape> "<rationale>"
   python3 audit.py report                  precision per tier + taxonomy
 
+AUDIT_CORPUS picks the tree to scan (default corpus/), AUDIT_FILE the
+verdicts to read and write (default audit.json).
+
 verdicts: leak | not_leak | unsure
 shape:    short tag, grouped in the report (e.g. report_frame, dict_write)
 """
@@ -20,7 +23,7 @@ import sys
 
 from finder import find_py_files, analyze_file
 
-AUDIT_FILE = "audit.json"
+DEFAULT_AUDIT_FILE = "audit.json"
 DEFAULT_CORPUS = "corpus"
 CONTEXT_BEFORE = 8
 CONTEXT_AFTER = 4
@@ -50,15 +53,21 @@ def finding_id(finding):
     return f"{finding['file']}:{finding['line']}:{finding['pattern']}"
 
 
+# a second corpus needs a second verdict file, so both are overridable:
+#   AUDIT_CORPUS=holdout AUDIT_FILE=holdout-audit.json python3 audit.py report
+def audit_file():
+    return os.environ.get("AUDIT_FILE", DEFAULT_AUDIT_FILE)
+
+
 def load_audit():
-    if not os.path.exists(AUDIT_FILE):
+    if not os.path.exists(audit_file()):
         return {}
-    with open(AUDIT_FILE) as f:
+    with open(audit_file()) as f:
         return json.load(f)
 
 
 def save_audit(audit):
-    with open(AUDIT_FILE, "w") as f:
+    with open(audit_file(), "w") as f:
         json.dump(audit, f, indent=2, sort_keys=True)
         f.write("\n")
 

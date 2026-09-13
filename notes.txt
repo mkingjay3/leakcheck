@@ -663,7 +663,7 @@ recall against the planted-bias ground truth, unchanged: Zeus, DevilStra
 and GodStraNew caught, wtc still missed (sklearn MinMaxScaler, a
 different mechanism). 3 of 4 files, 3 of 3 on the min/max shape.
 
-what this cost, stated plainly instead of buried: five real leaks the
+what this cost: five real leaks the
 tool used to catch, now out of scope. A whole-series stat parked in a
 scalar and divided into a column a line later -
   vol = df['returns'].std()
@@ -738,3 +738,167 @@ The commit dates and the session dates in this file don't line up, since
 several sessions' cases went in late in one commit ("bro i thought i
 commietd these"). Where they disagree, the file-addition record is what
 these numbers follow.
+
+
+2026/09/12 (later) - HELD-OUT CORPUS. Everything before this entry was
+measured on the same five repos the rules were written against. This is
+the first run on code the tool had never seen, and it is the entry that
+should have existed weeks ago.
+
+seven repos, cloned depth 1 into holdout/ (gitignored), 928 .py files,
+all of them parsing. Findings per repo:
+   12  ta
+    7  PyPortfolioOpt
+    6  backtesting.py
+    4  jesse
+    3  quantstats
+    2  pybroker
+    0  mlfinlab
+Picked for being trading/backtest code by different authors than the dev
+corpus, and for being libraries rather than one-off strategy scripts, which
+turned out to matter more than I expected - a library's aggregates sit in
+metrics, plotting and test fixtures far more often than a strategy
+script's do.
+
+first run, before any fix: 89 findings (11 high, 78 low) against 11 on
+the dev corpus. Read the clusters and the rule was plainly too loose. It
+was searching for the series appearing ANYWHERE in the statement, so all
+of these counted as a broadcast when none of them are:
+  {"min": s.min(), "max": s.max(), "p5": s.quantile(0.05)} - s appears
+    bare as the receiver of .quantile(), which is not an aggregate, so
+    the walk descended into it. A receiver is not an operand. quantstats
+    alone had 24 of these.
+  len(x) > 0 and x.std() > 0 - x inside len() is a scalar count.
+  [constraint, cp.sum(w) == k] + more_constraints - a list concatenation
+    is a BinOp, and the bare w was in a different element of the list.
+
+so broadcasts_over_series now requires the statistic and the series to be
+combined ARITHMETICALLY: walk up from the aggregate for a BinOp, UnaryOp
+or Compare that also holds a bare use of the series. And contains_bare
+stops at three boundaries it used to walk straight through - a collection
+literal (a container doesn't combine its elements), an aggregate call
+(already did), and any other call that isn't element-wise. That last one
+needs a list, ELEMENTWISE_FUNCS (abs, log, sqrt, where, ...), which is
+the one place in this file where I'm naming names instead of using a
+structural rule. The justification is semantic rather than corpus-fitted:
+a series through abs() is still a series and can still be broadcast, a
+series through len() or ulcer_index() is a scalar and cannot.
+
+  low findings on holdout: 78 -> 23
+  dev corpus: 11 -> 11, unchanged, and the test suite stayed 100%/100%
+  cost: one real leak, ta/trend.py:600 (dpo), where close only ever
+    appears as the receiver of .shift(). Recovered later the same session
+    by the fill_value rule below.
+
+CENSUS of all 34, verdicts in holdout-audit.json (audit.py now takes
+AUDIT_FILE as well as AUDIT_CORPUS, so the two corpora keep separate
+verdict files):
+
+  tier   findings  leaks  not leaks  precision
+  high         11      2          9  2/11  (18%)
+  low          23     12         11  12/23 (52%)
+  total        34     14         20  14/34 (41%)
+
+against 11/11 on the dev corpus. That gap is the finding of this session.
+11/11 was not a measurement of the tool, it was a measurement of the
+corpus the tool was fitted to, and I said as much in the entry above
+without knowing how big the difference would be.
+
+the high tier is the bigger surprise: 2/2 on dev, 2/11 held out. Its
+false positives are three shapes the dev corpus contained none of:
+  3  ml_label        df['target'] = close.shift(-1). Looking ahead is the
+                    point of a supervised label, and it is written the
+                    same way as the bug. Unfixable from syntax - added
+                    `# leakcheck: ignore` for exactly this.
+  2  test_fixture    bfill in a unit test's price frame
+  2  posthoc_stats   bfill on an equity curve after the run
+  2  synthetic_data  shift(-1) inside backtesting.py's random OHLC
+                    generator
+The two real ones are both warmup backfills: ta/utils.py:33 (_fillna,
+which every ta indicator with fillna=True goes through) and
+backtesting.py/lib.py:473 (bfill after rolling().mean() on an ATR that
+TrailingStrategy trades on). Both fill the leading rows from later ones.
+
+the low tier held up better, 52%, and its true positives are worth
+naming because they are found bugs in real libraries, not in someone's
+script:
+  jesse/utils.py:282 - z_score() is (series - mean(series)) / std(series)
+    over the whole array. The shape this tool exists to find, in a live
+    trading bot's utils.
+  ta/trend.py, 10 findings across TRIX and KST - shift(r,
+    fill_value=close.mean()) fills the first r rows with the whole-series
+    mean. Two things worth being precise about: the leak is real but
+    confined to the warmup rows, and the rule matched the subtraction
+    sitting next to the fill rather than the fill itself. Right answer,
+    adjacent reason - which is what the fill_value rule below fixes.
+
+its 11 false positives, and none of them are the dict-vs-frame problem
+that dominated the dev corpus:
+  3  covariance_demean   (X - X.mean())*(Y - Y.mean()) is the definition
+                         of covariance; result is a matrix, not a signal
+  2  weight_normalization  market caps or portfolio weights over their
+                         own sum - across assets, no time axis at all
+  2  kernel_normalization  weights/weights.sum() on a triangular or sine
+                         kernel built from np.arange
+  2  plot_rescale        returns/returns.std() to match benchmark vol on
+                         a chart
+  1  weighted_average    size-weighted mean return over all trades
+  1  bounded_by_caller   ta/trend.py:654, _mad is handed to
+                         rolling().apply(), so its argument is a window.
+                         The bound is at the call site, invisible inside
+                         the helper - the same scope-local blindness that
+                         RECOVERS DevilStra and GodStraNew, costing here
+                         instead of paying.
+Four of the eleven (weight and kernel normalization) are one problem: the
+tool cannot tell a price column from a vector with no time axis. Those
+are structurally identical to a real normalization and I am not going to
+guess from variable names.
+
+two small things added off the back of this:
+  exit 1 when anything is found, 0 when not, so the thing can gate a
+  commit hook or CI. It printed findings and exited 0 before, which made
+  it useless for that.
+  `# leakcheck: ignore` on a line suppresses it. Driven by ml_label, the
+  one false positive that is certainly unfixable and certainly common.
+
+so fill_value got its own rule, since catching eleven real findings by
+accident is not the same as catching them. fills_rows() flags an aggregate
+used as a shift(..., fill_value=) argument or handed to fillna() - a
+whole-series number written into particular rows, which is the same leak as
+a broadcast arrived at differently. Imputing missing values with a column
+mean is the same shape and the same bug.
+
+  holdout: 34 -> 38 findings, all four new ones real
+    ta/trend.py:414, :432  ichimoku span A and B
+    ta/trend.py:600        dpo, the false negative from earlier today, back
+                           and now for the reason the message states
+    ta/trend.py:896        vortex true range
+  dev corpus: 11 -> 11, unchanged. test suite 33 cases, 100%/100%, with
+    leak_fill_value_mean.py added to hold the shape.
+
+FINAL HELD-OUT CENSUS, all 38 read, verdicts in holdout-audit.json:
+
+  tier   findings  leaks  not leaks  precision
+  high         11      2          9  2/11   (18%)
+  low          27     16         11  16/27  (59%)
+  total        38     18         20  18/38  (47%)
+
+the false-positive count did not move at all - 11 before the fill_value
+rule and 11 after. Every finding it added was real.
+
+what I'd do next, in order:
+  1. the high tier. 2/11 is the weakest number in the project and four of
+     its nine false positives are context rather than mechanism: two test
+     fixtures and two inside backtesting.py's synthetic-data generator.
+     Something like a way to exclude paths would move it
+     without touching detection, which is worth doing carefully rather
+     than fast - excluding tests/ by default would hide real leaks in
+     fixtures.
+  2. weight and kernel normalization, 4 of the 11 low false positives.
+     Needs knowing a price column from a vector with no time axis, which
+     is the same type-information ceiling the dev corpus census hit from
+     a different direction.
+  3. a third corpus. The dev corpus read 11/11 and the held-out read
+     18/38. One held-out corpus is one sample of what unseen code looks
+     like, and I already know what happens when I trust a single
+     sample.

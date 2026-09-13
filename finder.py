@@ -1,12 +1,14 @@
-"""Flags four lookahead-bias patterns in pandas/numpy backtest code.
+"""Flags lookahead bias in pandas/numpy backtest code, from the syntax tree
+only - nothing here imports or runs the code it reads.
 
-high: bfill/backfill, shift(-n), rolling(center=True) - all three read rows
-      that hadn't happened yet, readable off a single call.
-low:  a whole-series statistic combined back into the series it summarises,
-      e.g. (df - df.min()) / (df.max() - df.min()), which makes every row's
-      value depend on every other row.
+high: bfill/backfill, shift(-n), rolling(center=True). All three read rows
+      that hadn't happened yet, and all three are readable off one call.
+low:  a whole-series statistic put back into the series it summarises, either
+      combined with it arithmetically, as in (df - df.min()) / (df.max() -
+      df.min()), or used to fill rows, as in shift(1, fill_value=x.mean()).
+      Either way a row ends up depending on every other row.
 
-Anything else is out of scope on purpose - see README.md.
+Anything else is out of scope on purpose, and README.md says what that costs.
 """
 
 import ast
@@ -19,11 +21,18 @@ BACKFILL_METHODS = ["bfill", "backfill"]
 AGGREGATE_METHODS = ["mean", "std", "max", "min", "sum", "median", "var"]
 WINDOWED_METHODS = ["rolling", "expanding", "ewm"]
 
+# functions that map over elements, so a series passed through one is still a
+# series and can still be broadcast against a statistic
+ELEMENTWISE_FUNCS = ["abs", "fabs", "log", "log1p", "log10", "exp", "sqrt",
+                     "square", "power", "sign", "clip", "where", "maximum", "minimum"]
+
 # lambdas and comprehensions bind their own names, so a bare `w` inside one
 # is not the same `w` as outside it
 NAME_BINDING_NODES = (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 
 SKIP_DIRS = ["venv", "site-packages", ".git", "node_modules"]
+
+IGNORE_COMMENT = "leakcheck: ignore"
 
 
 def extract_int_literal(node):
@@ -33,6 +42,17 @@ def extract_int_literal(node):
         if isinstance(node.operand, ast.Constant) and isinstance(node.operand.value, int):
             return -node.operand.value
     return None
+
+
+# lines a reader has already judged. The commonest real need is a machine
+# learning label - `df['target'] = df['close'].shift(-1)` is deliberate and
+# structurally identical to the bug, so no rule can tell them apart.
+def ignored_lines(src):
+    ignored = set()
+    for number, text in enumerate(src.splitlines(), start=1):
+        if IGNORE_COMMENT in text:
+            ignored.add(number)
+    return ignored
 
 
 # a manual slice like df.Close[-30:] bounds the data the same way
@@ -78,27 +98,82 @@ def broadcast_root(node):
     return None
 
 
+def called_name(node):
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    return None
+
+
 def contains_bare(node, source_dump):
     if node is None:
         return False
-    # a series mentioned inside another aggregate call is being summarised
-    # too, not broadcast: np.mean(r) / np.std(r) never touches r directly
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-        if node.func.attr in AGGREGATE_METHODS:
-            return False
+
     if isinstance(node, ast.expr) and ast.dump(node) == source_dump:
         return True
+
+    # a container doesn't combine what's in it, so a mention in one element
+    # of [a, b] says nothing about the other
+    if isinstance(node, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
+        return False
+
+    if isinstance(node, ast.Call):
+        name = called_name(node)
+        # summarised again rather than broadcast: np.mean(r) / np.std(r)
+        if name in AGGREGATE_METHODS:
+            return False
+        # anything else consuming the series gives back who knows what -
+        # len(x) is a count, ulcer_index(x) is a scalar. Only functions that
+        # map over elements leave a series that can still be broadcast.
+        if name not in ELEMENTWISE_FUNCS:
+            return False
+
     return any(contains_bare(child, source_dump) for child in ast.iter_child_nodes(node))
 
 
+def fills_rows(node):
+    """True if the statistic is being used to fill rows.
+
+    shift(r, fill_value=close.mean()) puts the whole-series mean into the
+    first r rows, and fillna(df.mean()) puts it wherever data was missing.
+    Those rows then depend on every row, which is the same leak as a
+    broadcast reached a different way.
+    """
+    parent = getattr(node, "parent", None)
+    if isinstance(parent, ast.keyword):
+        if parent.arg == "fill_value":
+            return True
+        call = getattr(parent, "parent", None)
+        return isinstance(call, ast.Call) and called_name(call) == "fillna"
+    return isinstance(parent, ast.Call) and called_name(parent) == "fillna"
+
+
 def broadcasts_over_series(node):
-    """True if the aggregate's own series also appears on its own nearby.
+    """True if the statistic is combined arithmetically with its own series.
 
     That makes the result a per-row value derived from every row, which is
     the leak itself - it doesn't matter where the result goes afterwards,
     and it often goes out through a return into a caller's column write.
+
+    Arithmetic is the whole test. `{"min": s.min(), "p5": s.quantile(.05)}`
+    mentions s twice and combines nothing; `len(s) > 0 and s.std() > 0`
+    likewise. Only a BinOp, UnaryOp or Compare actually applies the one
+    number to the many rows, so walk up looking for one of those that also
+    holds a bare use of the series.
     """
-    return contains_bare(broadcast_root(node), ast.dump(aggregate_source(node)))
+    source_dump = ast.dump(aggregate_source(node))
+    root = broadcast_root(node)
+
+    current = node
+    while current is not None:
+        if isinstance(current, (ast.BinOp, ast.UnaryOp, ast.Compare)):
+            if contains_bare(current, source_dump):
+                return True
+        if current is root:
+            return False
+        current = getattr(current, "parent", None)
+    return False
 
 
 class Finding:
@@ -111,7 +186,8 @@ class Finding:
 
 class LeakFinder(ast.NodeVisitor):
 
-    def __init__(self):
+    def __init__(self, ignored=frozenset()):
+        self.ignored = ignored
         self.findings = []
         self.shift_count = 0
         self.unknown_shifts = 0
@@ -121,6 +197,8 @@ class LeakFinder(ast.NodeVisitor):
     # one finding per (line, pattern): `tib.min()` twice in one normalization
     # is one site, and reporting it twice tells the reader nothing new
     def add_finding(self, line, pattern, message, confidence):
+        if line in self.ignored:
+            return
         if any(f.line == line and f.pattern == pattern for f in self.findings):
             return
         self.findings.append(Finding(line, pattern, message, confidence))
@@ -220,10 +298,14 @@ class LeakFinder(ast.NodeVisitor):
     def check_aggregate(self, node, name):
         if self.is_bounded(aggregate_source(node)):
             return
-        if not broadcasts_over_series(node):
+
+        if fills_rows(node):
+            message = f"{name}() over the whole series is used to fill rows"
+        elif broadcasts_over_series(node):
+            message = f"{name}() over the whole series is combined back into that series"
+        else:
             return
 
-        message = f"{name}() over the whole series is combined back into that series"
         self.add_finding(node.lineno, name, message, "low")
 
 
@@ -252,7 +334,7 @@ def analyze_file(fpath, quiet=False):
 
     annotate_parents(tree)
 
-    finder = LeakFinder()
+    finder = LeakFinder(ignored_lines(src))
     finder.collect_top_level_names(tree)
     finder.visit(tree)
 
@@ -291,7 +373,8 @@ def main():
 
     if not paths:
         print("usage: python3 finder.py [--quiet] <file_or_directory> ...")
-        return
+        print(f"add a `# {IGNORE_COMMENT}` comment on a line to silence it")
+        return 0
 
     fpaths = []
     for path in paths:
@@ -316,6 +399,9 @@ def main():
 
     print_summary(total_high, total_low, total_shifts, total_unreadable_shifts)
 
+    # nonzero when anything was found, so this can gate a commit or a CI job
+    return 1 if total_high or total_low else 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

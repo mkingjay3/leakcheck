@@ -271,7 +271,7 @@ findings by confidence
     2 high
     9 low
 
-HAND-VERIFIED PRECISION — all 11 findings were already read and recorded
+HAND-VERIFIED PRECISION - all 11 findings were already read and recorded
 in the 09/11 census, so audit.json covers every one of them with nothing
 unaudited (`python3 audit.py report`):
 
@@ -298,3 +298,75 @@ run_tests.py every run. They never once matched a real leak in these 590
 files, and they produced all 26 census false positives.
 
 history: 160 (09/01) -> 108 -> 106 -> 35 -> 41 -> 11.
+
+
+leakcheck baseline (held-out) — 2026/09/12
+
+A second corpus, cloned depth 1 into holdout/ (gitignored), that the rules
+were never developed against:
+  ta                    (bukosabino/ta)
+  PyPortfolioOpt        (robertmartin8/PyPortfolioOpt)
+  backtesting.py        (kernc/backtesting.py)
+  quantstats            (ranaroussi/quantstats)
+  jesse                 (jesse-ai/jesse)
+  pybroker              (edtechre/pybroker)
+  mlfinlab              (hudson-and-thames/mlfinlab)
+
+928 .py files walked, all of them parsed. Two detection changes were made
+after the first run on it. broadcasts_over_series now requires the statistic
+and the series to be combined arithmetically, and contains_bare stops at
+collection literals and at calls that aren't element-wise: that took holdout
+low findings from 78 to 23. Then fills_rows was added, flagging an aggregate
+used as a shift(..., fill_value=) argument or handed to fillna(), which took
+them back up to 27, all four additions real. Both changes left the
+development corpus at 11 and the test suite at 100%/100%. See notes.txt,
+2026/09/12 (later).
+
+command: python3 finder.py holdout
+
+totals
+  56 shift() calls seen, 24 unresolvable (43%)
+  38 findings
+
+findings by pattern
+   19 mean
+    6 shift
+    5 bfill
+    5 sum
+    3 std
+    0 min / max / median / var
+    0 rolling(center=True)
+
+Worth noting against the development corpus, where the leaks were min/max
+normalization: this corpus produced no min or max findings at all. Its real
+leaks are mean-based, which is the same mechanism through a different method.
+
+findings by confidence
+   11 high
+   27 low
+
+HAND-VERIFIED PRECISION (census, every finding read; verdicts and
+rationales in holdout-audit.json, reproduce with
+`AUDIT_CORPUS=holdout AUDIT_FILE=holdout-audit.json python3 audit.py report`)
+
+  tier   findings  leaks  not leaks  precision
+  high         11      2          9  2/11   18%
+  low          27     16         11  16/27  59%
+  total        38     18         20  18/38  47%
+
+Compare with 11/11 on the development corpus above. The development number
+describes the corpus the rules were fitted to; this one describes the tool.
+The high tier drops hardest (2/2 -> 2/11) because its main false positive,
+shift(-1) used to build an ML label, does not appear anywhere in the
+development corpus.
+
+The two real high-tier findings are warmup backfills in library code:
+ta/ta/utils.py:33 and backtesting.py/backtesting/lib.py:473. The low tier's
+sixteen are jesse's z_score() (2) and ta's fill_value=close.mean() across
+TRIX, KST, Ichimoku, DPO and Vortex (14). All 11 false positives predate the
+fill_value rule - it added four findings and no noise.
+
+The 24 unresolvable shift calls out of 56 (43%) is much worse than the
+development corpus's 19%, and unexamined. Library code passes periods as a
+parameter far more often than strategy scripts do, which is the obvious
+explanation and not a checked one.

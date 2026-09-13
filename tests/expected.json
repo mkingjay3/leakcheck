@@ -53,6 +53,9 @@
   "leak_normalize_threshold.py": [
     {"line": 8, "pattern": "mean", "conf": "low"}
   ],
+  "leak_fill_value_mean.py": [
+    {"line": 8, "pattern": "mean", "conf": "low"}
+  ],
 
   "clean_shift_positive.py": [],
   "clean_shift_positive_periods_kwarg.py": [],
@@ -68,6 +71,7 @@
   "clean_aggregate_after_groupby.py": [],
   "clean_aggregate_axis_one.py": [],
   "clean_normalize_bounded_slice.py": [],
+  "clean_ignore_comment.py": [],
 
   "fp_posthoc_sharpe.py": [],
   "fp_manual_window.py": [],

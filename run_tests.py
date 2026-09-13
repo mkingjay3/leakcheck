@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import sys
 
 from finder import analyze_file
@@ -110,6 +111,9 @@ def main():
     print_totals_and_precision(true_positive, false_positive, false_negative, len(expected))
     print()
     print_known_gaps(known_gaps)
+    print()
+    if not exit_codes_correct():
+        any_case_failed = True
 
     sys.exit(1 if any_case_failed else 0)
 
@@ -164,6 +168,23 @@ def print_known_gaps(known_gaps):
             print("    now detected - move it back into the expected cases")
 
     print(f"  {len(known_gaps)} shapes, {now_detected} now detected")
+
+
+# nothing else here runs finder.py's main(), and a caller gating a commit
+# hook on the exit code depends on it
+def exit_codes_correct():
+    print("cli exit codes:")
+    correct = True
+    for filename, expected in [("clean_rolling_mean.py", 0), ("leak_bfill.py", 1)]:
+        finished = subprocess.run(
+            [sys.executable, "finder.py", "--quiet", os.path.join(CASES_DIR, filename)],
+            capture_output=True,
+        )
+        ok = finished.returncode == expected
+        correct = correct and ok
+        print(f"  {'pass' if ok else 'FAIL'} {filename} exited {finished.returncode}, "
+              f"expected {expected}")
+    return correct
 
 
 if __name__ == "__main__":
