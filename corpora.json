@@ -1,0 +1,130 @@
+{
+  "_comment": "Exact commits every measurement in baseline.txt was taken against, and the finding counts those commits produce. Run `python3 fetch_corpora.py` to reproduce them and `--check` to confirm nothing has drifted. Pinned because an unpinned corpus makes every recorded number rot silently.",
+  "groups": {
+    "corpus": {
+      "role": "development",
+      "note": "The five repos the rules were written against. Every number measured here describes a corpus the tool was fitted to, not the tool.",
+      "repos": [
+        {
+          "name": "QuantResearch",
+          "url": "https://github.com/letianzj/QuantResearch.git",
+          "commit": "79bbf6a8b5ad74ac2c165663b5e12eb70d76a54e"
+        },
+        {
+          "name": "algorithmic-trading-with-python",
+          "url": "https://github.com/chrisconlan/algorithmic-trading-with-python.git",
+          "commit": "ebe01087c7d9172db72bc3c9adc1eee5e882ac49"
+        },
+        {
+          "name": "backtrader",
+          "url": "https://github.com/mementum/backtrader.git",
+          "commit": "b853d7c90b6721476eb5a5ea3135224e33db1f14"
+        },
+        {
+          "name": "freqtrade-strategies",
+          "url": "https://github.com/freqtrade/freqtrade-strategies.git",
+          "commit": "eff78d3ce3456b52c68a4e9a33cc055a56b801ff"
+        },
+        {
+          "name": "quant-trading",
+          "url": "https://github.com/je-suis-tm/quant-trading.git",
+          "commit": "611b73f2c3f577ac5b28aaa19ac8c43d3236c7a5"
+        }
+      ],
+      "expected": {
+        "high": 2,
+        "low": 9
+      }
+    },
+    "holdout": {
+      "role": "held-out libraries",
+      "note": "Seven library-shaped repos the rules had never been run on when they were finished. The first honest precision measurement.",
+      "repos": [
+        {
+          "name": "PyPortfolioOpt",
+          "url": "https://github.com/robertmartin8/PyPortfolioOpt.git",
+          "commit": "a6638d2e06dae6f444fd022cfd4b3c528902a85b"
+        },
+        {
+          "name": "backtesting.py",
+          "url": "https://github.com/kernc/backtesting.py.git",
+          "commit": "ca2e2611621e472542ba90f7243a1fa06a7d7108"
+        },
+        {
+          "name": "jesse",
+          "url": "https://github.com/jesse-ai/jesse.git",
+          "commit": "60f882e88c2d28e0f8cbc7f916758434e6ab7ce6"
+        },
+        {
+          "name": "mlfinlab",
+          "url": "https://github.com/hudson-and-thames/mlfinlab.git",
+          "commit": "79dcc7120ec84110578f75b025a75850eb72fc73"
+        },
+        {
+          "name": "pybroker",
+          "url": "https://github.com/edtechre/pybroker.git",
+          "commit": "95e00fecb1006490601aca7e2e8de609f032e12d"
+        },
+        {
+          "name": "quantstats",
+          "url": "https://github.com/ranaroussi/quantstats.git",
+          "commit": "fbd10daed0227aa0d10da6513f1b15e7e98d7fae"
+        },
+        {
+          "name": "ta",
+          "url": "https://github.com/bukosabino/ta.git",
+          "commit": "a890410710a6e483c9ba08da7f3dd5089e4b9dff"
+        }
+      ],
+      "expected": {
+        "high": 11,
+        "low": 25
+      }
+    },
+    "strategies": {
+      "role": "held-out strategies",
+      "note": "Seven strategy-shaped repos, added to separate two things the held-out libraries run had confounded: code the rules had never seen, and library code versus strategy code.",
+      "repos": [
+        {
+          "name": "Crypto-Signal",
+          "url": "https://github.com/CryptoSignal/Crypto-Signal.git",
+          "commit": "7cb9c5c6cd226c6fe2d345e4bda3bec8156cefec"
+        },
+        {
+          "name": "Deep-Trading",
+          "url": "https://github.com/Rachnog/Deep-Trading.git",
+          "commit": "0578698863be3d10fb6d116ed0104eee9d40a9f9"
+        },
+        {
+          "name": "NostalgiaForInfinity",
+          "url": "https://github.com/iterativv/NostalgiaForInfinity.git",
+          "commit": "bac2b8c282b5bba66b3fe4ca1bfa4a4e38b975d6"
+        },
+        {
+          "name": "Options-Trading-Strategies-in-Python",
+          "url": "https://github.com/PyPatel/Options-Trading-Strategies-in-Python.git",
+          "commit": "c7b8a0de9b7232a1615a02acbed70bf2959fbe44"
+        },
+        {
+          "name": "example-strategies",
+          "url": "https://github.com/jesse-ai/example-strategies.git",
+          "commit": "7c91e0a37bf62165790120d730442e4f6eb00364"
+        },
+        {
+          "name": "freqtrade-strategies-that-work",
+          "url": "https://github.com/paulcpk/freqtrade-strategies-that-work.git",
+          "commit": "1e154a2f6b9aeecbaacb7db5ed6b866603daee2c"
+        },
+        {
+          "name": "python-trading-robot",
+          "url": "https://github.com/areed1192/python-trading-robot.git",
+          "commit": "abe7ac9189873f376e6fd968f57f403a8ffd45d2"
+        }
+      ],
+      "expected": {
+        "high": 0,
+        "low": 1
+      }
+    }
+  }
+}

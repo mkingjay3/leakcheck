@@ -42,6 +42,9 @@
   "leak_rolling_center.py": [
     {"line": 4, "pattern": "rolling", "conf": "high"}
   ],
+  "leak_rolling_center_short_shift.py": [
+    {"line": 7, "pattern": "rolling", "conf": "high"}
+  ],
   "leak_normalize_inline.py": [
     {"line": 9, "pattern": "min", "conf": "low"},
     {"line": 9, "pattern": "max", "conf": "low"}
@@ -56,6 +59,9 @@
   "leak_fill_value_mean.py": [
     {"line": 8, "pattern": "mean", "conf": "low"}
   ],
+  "leak_mixed_window_scales.py": [
+    {"line": 9, "pattern": "mean", "conf": "low"}
+  ],
 
   "clean_shift_positive.py": [],
   "clean_shift_positive_periods_kwarg.py": [],
@@ -64,6 +70,7 @@
   "clean_shift_reassigned_unknown.py": [],
   "clean_rolling_mean.py": [],
   "clean_rolling_center_false.py": [],
+  "clean_rolling_center_compensated.py": [],
   "clean_ffill_not_bfill.py": [],
   "clean_aggregate_after_rolling.py": [],
   "clean_aggregate_after_expanding.py": [],
@@ -79,5 +86,6 @@
   "fp_shift_bounded_slice.py": [],
   "fp_aggregate_in_plot_call.py": [],
   "fp_aggregate_never_decided_on.py": [],
-  "fp_sum_in_sibling_lambda.py": []
+  "fp_sum_in_sibling_lambda.py": [],
+  "fp_broadcast_reduced_to_scalar.py": []
 }

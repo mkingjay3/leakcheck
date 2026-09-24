@@ -902,3 +902,124 @@ what I'd do next, in order:
      18/38. One held-out corpus is one sample of what unseen code looks
      like, and I already know what happens when I trust a single
      sample.
+
+
+2026/09/13 - THIRD CORPUS, and the infrastructure to stop any of this rotting.
+
+the confound the held-out run left behind: the dev corpus is mostly strategy
+scripts, the held-out one is entirely libraries. So 11/11 -> 18/38 mixed up
+two different things, code the rules had never seen and library code versus
+strategy code. Seven strategy repos, cloned into strategies/ (gitignored):
+NostalgiaForInfinity, freqtrade-strategies-that-work, jesse example-strategies,
+Crypto-Signal, Deep-Trading, Options-Trading-Strategies-in-Python,
+python-trading-robot. 145 files, 133 of them parsing - Deep-Trading and two
+others are Python 2 and say so rather than being skipped quietly.
+
+it crashed. RecursionError on eight NostalgiaForInfinity files, which are
+2-3.5MB each, one of them 79k lines of chained boolean conditions. The tool
+died mid-run rather than reporting anything. Raised the limit to 5000 (those
+files need about 3000) and analyze_file now catches RecursionError and prints
+the file like it prints a parse error, so one pathological file can't take the
+run down. A checker that crashes on the biggest real strategy in the ecosystem
+is not a checker.
+
+then 52 high-confidence findings, every single one rolling(center=True) - a
+pattern that had fired ZERO times across 1518 files of the other two corpora.
+All 52 are one idiom:
+
+  informative_1d["high"].rolling(window=5, center=True)
+    .apply(is_resistance, raw=True).shift(2)
+
+and all 52 are correct. A centered window of 5 reaches 2 rows ahead; the
+.shift(2) puts every value back on a row whose window sits entirely behind it.
+Support/resistance detection, and the shift is the compensation. Checked all
+52 programmatically rather than by eye, and they're identical: window=5,
+shift=2, reach=2. compensating_shift() now suppresses a centered rolling whose
+result is shifted forward by at least window//2. 52 -> 0, and
+leak_rolling_center_short_shift.py holds the case where the shift is too small
+to cover the reach.
+
+that left 7 low findings, all in a vendored copy of tsfresh's
+feature_calculators.py, and 6 are one shape:
+
+  np.sum(np.abs(x - np.mean(x)) > r * np.std(x)) / x.size
+
+the broadcast is real but np.sum collapses it straight back to a scalar, so no
+per-row value ever escapes - the same argument as fp_posthoc_sharpe, arrived at
+from the other side. broadcasts_over_series now returns False if an enclosing
+aggregate reduces the result before it reaches the root. That also removed 2
+holdout false positives (backtesting.py's size-weighted average and ta's _mad),
+and cost nothing anywhere.
+
+strategies census, all of it: 1 finding, 0 leaks. The remaining one is
+feature_calculators.py:437, the same reduce-to-scalar shape but through a
+reassigned name, which is the trace-a-name-forward gap this project has had
+open since the start. Verdicts in strategies-audit.json.
+
+so the confound answer, and it is not what I guessed: strategy code isn't
+noisier or cleaner than library code in any simple way. The dev corpus's true
+positives came from planted-bias strategies, the held-out library corpus's
+came from indicator code, and a corpus of production strategies produced
+nothing at all. What drives precision is what KIND of code the aggregate sits
+in - metrics, plotting, tests and feature calculators are where the false
+positives live, not scripts versus libraries.
+
+RECALL, finally measured with a denominator worth having. Until today it was
+12 hand-written cases I wrote plus 4 planted-bias files. recall.py takes real
+call sites out of the corpora, mutates each into a leak that is definitely a
+leak, and checks the tool reports it:
+  shift(k) -> shift(-k)
+  ffill() -> bfill()
+  rolling(n) -> rolling(n, center=True)
+  A.rolling(n).mean() -> A.mean(), only where A is already bare in the same
+    arithmetic, so removing the window leaves the broadcast shape
+The mutation is applied to a deep copy, unparsed, and re-analysed; a site
+counts as caught if the finding count for that pattern goes up.
+
+two things I had to fix in the harness before its numbers meant anything, both
+of which made it report misses that weren't misses:
+  the candidate test for the unwindow mutation searched the whole file, so a
+  bare `series` in a different function counted. Scoped to the enclosing
+  statement.
+  findings are one per (line, pattern), so mutating a site on a line that
+  already reports that pattern can't be observed however well the detector
+  works. Those sites are now excluded and counted separately.
+
+first honest run: 150/153. The 3 misses were all one shape:
+  returns.mean() / returns.rolling(20).std()    quantstats/stats.py:973
+  median_price.mean() - median_price.rolling(w).mean()   ta/momentum.py:462
+a whole-series statistic combined with a ROLLING statistic of the same series.
+The rolling side is one value per row, so the whole-series side is broadcast
+across every row - a real leak - but the series only ever appears as the
+receiver of .rolling(), and contains_bare won't descend into a non-element-wise
+call. Fixed: an aggregate whose receiver is a windowed call now counts as an
+occurrence of the series rather than as another summary.
+
+  recall: 150/153 -> 153/153
+  findings on all three corpora: unchanged, every one of them. The fix closed
+  three false negatives and added no noise at all, which is the first change
+  today where that was true without qualification.
+leak_mixed_window_scales.py holds the shape. It was found by recall.py, not by
+reading, which is the point of having it.
+
+FINAL, all three corpora, every finding hand-read:
+
+  corpus      590 files    2 high  9 low    11/11  (dev, fitted to)
+  holdout     928 files   11 high 25 low    18/36  (libraries, held out)
+  strategies  145 files    0 high  1 low     0/1   (strategies, held out)
+  total      1663 files   13 high 35 low    29/48
+
+  injected-leak recall: 153/153
+
+reproducibility, which the project did not have: corpora.json pins all
+nineteen repos to exact commits AND records the finding counts those commits
+produce. fetch_corpora.py clones them; --check reports drift and re-runs the
+counts, exiting nonzero if either moved. Before this, "590 files, 11 findings"
+was a claim nobody could check, including me in a month. CI runs the case
+suite on 3.9/3.11/3.12 and the corpus check on demand.
+
+what I would still not claim: that 60% overall precision generalizes. It is
+three corpora, all of which I chose, and the strategy corpus contributed one
+finding. The high tier is still 2/11 and its false positives are still mostly
+context - tests, examples, generators - which needs a way to exclude paths
+rather than another rule.

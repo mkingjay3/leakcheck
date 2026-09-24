@@ -114,6 +114,9 @@ def main():
     print()
     if not exit_codes_correct():
         any_case_failed = True
+    print()
+    if not sarif_output_valid():
+        any_case_failed = True
 
     sys.exit(1 if any_case_failed else 0)
 
@@ -185,6 +188,48 @@ def exit_codes_correct():
         print(f"  {'pass' if ok else 'FAIL'} {filename} exited {finished.returncode}, "
               f"expected {expected}")
     return correct
+
+
+# A malformed SARIF document uploads to GitHub as silently as a good one and
+# then shows nothing, so the shape is checked here rather than discovered from
+# an empty Security tab. The column round-trip is the part worth guarding: the
+# spec counts from 1 and ends one past the span, and getting either wrong puts
+# every annotation on the wrong characters.
+def sarif_output_valid():
+    print("sarif output:")
+    finished = subprocess.run(
+        [sys.executable, "finder.py", "--format", "sarif", "--quiet",
+         os.path.join(CASES_DIR, "leak_bfill.py")],
+        capture_output=True,
+        text=True,
+    )
+
+    try:
+        document = json.loads(finished.stdout)
+        run = document["runs"][0]
+        declared = {rule["id"] for rule in run["tool"]["driver"]["rules"]}
+        result = run["results"][0]
+        region = result["locations"][0]["physicalLocation"]["region"]
+        snippet = region["snippet"]["text"]
+        span = snippet[region["startColumn"] - 1:region["endColumn"] - 1]
+    except (ValueError, KeyError, IndexError) as error:
+        print(f"  FAIL could not read a result out of it: {error!r}")
+        return False
+
+    checks = [
+        ("version is 2.1.0", document["version"] == "2.1.0"),
+        ("columns are code points", run.get("columnKind") == "unicodeCodePoints"),
+        ("rule id is declared", result["ruleId"] in declared),
+        ("level is a SARIF level", result["level"] in ("error", "warning", "note")),
+        ("uri is repo-relative", not os.path.isabs(
+            result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"])),
+        ("fingerprint present", bool(result.get("partialFingerprints"))),
+        (f"columns select the call, got {span!r}", span == "bfill()"),
+    ]
+
+    for description, ok in checks:
+        print(f"  {'pass' if ok else 'FAIL'} {description}")
+    return all(ok for _, ok in checks)
 
 
 if __name__ == "__main__":

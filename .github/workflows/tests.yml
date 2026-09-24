@@ -1,0 +1,68 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  cases:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # no install step on purpose - the checker is stdlib ast and nothing else
+      - run: python3 run_tests.py
+
+  code-scanning:
+    # Uploads the tool's findings about this repository to GitHub, where they
+    # show as inline annotations on a pull request and in the Security tab.
+    # This is what the SARIF format is for, and running it here keeps the
+    # emitter honest against a real consumer rather than only against a test.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # tests/cases and sample.py hold deliberate leaks used as fixtures, so
+      # scanning them would fill the Security tab with findings that are the
+      # point of those files. The corpora are gitignored and so absent from a
+      # fresh checkout, but excluding them keeps this command's output the
+      # same when it is run locally. `|| true` keeps the findings exit code
+      # from skipping the upload step that exists to show those findings.
+      - name: scan
+        run: |
+          python3 finder.py --format sarif --quiet \
+            --exclude tests --exclude sample.py \
+            --exclude corpus --exclude holdout --exclude strategies \
+            . > leakcheck.sarif || true
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: leakcheck.sarif
+          category: leakcheck
+
+  corpora:
+    # The corpora are gitignored clones, so this fetches them at their pinned
+    # commits and rechecks the numbers in baseline.txt. Manual because it
+    # clones nineteen repos, about 1.7k files; not something to do on every push.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python3 fetch_corpora.py
+      - name: commits and finding counts still match corpora.json
+        run: python3 fetch_corpora.py --check
+      - name: injected-leak recall
+        run: python3 recall.py

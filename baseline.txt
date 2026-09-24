@@ -370,3 +370,74 @@ The 24 unresolvable shift calls out of 56 (43%) is much worse than the
 development corpus's 19%, and unexamined. Library code passes periods as a
 parameter far more often than strategy scripts do, which is the obvious
 explanation and not a checked one.
+
+
+leakcheck baseline (held-out strategies) — 2026/09/13
+
+A third corpus, cloned into strategies/ (gitignored), added to separate two
+things the held-out libraries run had confounded: code the rules had never
+seen, and library code versus strategy code.
+  NostalgiaForInfinity            (iterativv/NostalgiaForInfinity)
+  freqtrade-strategies-that-work  (paulcpk/freqtrade-strategies-that-work)
+  example-strategies              (jesse-ai/example-strategies)
+  Crypto-Signal                   (CryptoSignal/Crypto-Signal)
+  Deep-Trading                    (Rachnog/Deep-Trading)
+  Options-Trading-Strategies      (PyPatel/Options-Trading-Strategies-in-Python)
+  python-trading-robot            (areed1192/python-trading-robot)
+
+145 .py files walked, 133 parsed - twelve are Python 2 and report as parse
+failures rather than being skipped quietly.
+
+Three detection changes came out of the first run on it, all in notes.txt
+2026/09/13: the eight NostalgiaForInfinity files that crashed the walker now
+report instead; a centered rolling whose result is shifted forward by at least
+window//2 is suppressed, because the shift is the compensation; and a broadcast
+that an enclosing aggregate reduces straight back to a scalar is suppressed.
+
+command: python3 finder.py strategies
+
+totals
+  6399 shift() calls seen, 526 unresolvable (8%)
+  1 finding
+
+findings by pattern
+    1 mean
+    0 everything else
+
+findings by confidence
+    0 high
+    1 low
+
+HAND-VERIFIED PRECISION (census, verdicts in strategies-audit.json)
+
+  tier   findings  leaks  not leaks  precision
+  low           1      0          1  0/1
+
+The interesting number here is not 0/1, it is what the first run looked like:
+52 high-confidence findings, every one of them rolling(center=True), a pattern
+that had fired zero times in the 1518 files of the other two corpora. All 52
+were the same correct support/resistance idiom. A pattern can sit dormant
+across two corpora and then be almost the entire output of a third.
+
+Production strategy code produced no true positives at all, which does not
+support the tidy story that strategy code leaks more than library code. What
+drives precision is the kind of code the aggregate sits in - metrics,
+plotting, tests and feature calculators are where the false positives are.
+
+
+leakcheck, all corpora — 2026/09/13
+
+  corpus      590 files    2 high   9 low   11/11 leaks   development
+  holdout     928 files   11 high  25 low   18/36 leaks   held out, libraries
+  strategies  145 files    0 high   1 low    0/1  leaks   held out, strategies
+  total      1663 files   13 high  35 low   29/48 leaks
+
+  injected-leak recall  153/153   (python3 recall.py)
+
+Every one of the 48 has been read by hand; verdicts and rationales are in
+audit.json, holdout-audit.json and strategies-audit.json. All nineteen repos
+are pinned to exact commits in corpora.json along with the counts they
+produce, so `python3 fetch_corpora.py --check` fails if either drifts.
+
+history of the development corpus: 160 (09/01) -> 108 -> 106 -> 35 -> 41 ->
+11, and 11 since.

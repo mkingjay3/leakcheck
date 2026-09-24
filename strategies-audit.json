@@ -1,0 +1,9 @@
+{
+  "strategies/Deep-Trading/top-ten-mistakes/feature_calculators.py:437:mean": {
+    "conf": "low",
+    "pattern": "mean",
+    "rationale": "z-transform inside a tsfresh feature calculator; the normalized x is immediately np.diff'd and dotted into a single number, so no per-row value leaves the function. Missed by the reduced-to-scalar rule because it goes through a reassigned name first",
+    "shape": "reduced_to_scalar",
+    "verdict": "not_leak"
+  }
+}
