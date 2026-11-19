@@ -9,13 +9,14 @@ jobs:
   cases:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.9", "3.11", "3.12"]
+    # the official image rather than setup-python, which has no 3.9 build for
+    # newer Ubuntu runners
+    container: python:${{ matrix.python-version }}-slim
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
       # no install step on purpose - the checker is stdlib ast and nothing else
       - run: python3 run_tests.py
 
