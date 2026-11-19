@@ -35,6 +35,15 @@ VERSION = "0.1.0"
 
 RANK = {"high": 0, "low": 1}
 
+# How far into the future a finding reaches, in rows. A shift(-3) reaches
+# exactly 3 rows; a centered window of 20 reaches 10. The other two rules
+# reach REACH_SERIES: bfill takes the next valid value wherever it is, and a
+# whole-series statistic reads every row there is, so neither has a finite
+# number attached to it. None is different again and means the reach could
+# not be worked out - a centered window whose size is a variable - and is
+# never to be read as "small".
+REACH_SERIES = "series"
+
 ANSI = {"red": "\033[31m", "yellow": "\033[33m", "bold": "\033[1m",
         "dim": "\033[2m", "reset": "\033[0m"}
 
@@ -196,12 +205,25 @@ def broadcast_root(node: ast.AST) -> ast.AST | None:
     return None
 
 
-def rolling_window(node: ast.Call) -> int | None:
+def resolve_int(node: ast.AST | None, known_ints: dict | None = None) -> int | None:
+    """An int literal, or a name the file assigns one to exactly once.
+
+    Both the shift rule and the rolling rule need a number off the syntax, and
+    both should read `WINDOW = 252` the same way, so the name lookup lives
+    here rather than in one of them.
+    """
+    value = extract_int_literal(node)
+    if value is None and known_ints and isinstance(node, ast.Name):
+        value = known_ints.get(node.id)
+    return value
+
+
+def rolling_window(node: ast.Call, known_ints: dict | None = None) -> int | None:
     for keyword in node.keywords:
         if keyword.arg == "window":
-            return extract_int_literal(keyword.value)
+            return resolve_int(keyword.value, known_ints)
     if node.args:
-        return extract_int_literal(node.args[0])
+        return resolve_int(node.args[0], known_ints)
     return None
 
 
@@ -390,14 +412,15 @@ class Finding:
     defect class it belongs to; several patterns share one rule.
     """
 
-    def __init__(self, line: int, col: int, end_col: int,
-                 pattern: str, msg: str, conf: str) -> None:
+    def __init__(self, line: int, col: int, end_col: int, pattern: str,
+                 msg: str, conf: str, reach: int | str | None = None) -> None:
         self.line = line
         self.col = col
         self.end_col = end_col
         self.pattern = pattern
         self.msg = msg
         self.conf = conf
+        self.reach = reach
 
     # the call that triggered this finding is `pattern`; the defect class it
     # belongs to is `rule`, and that is what a SARIF consumer groups by
@@ -434,15 +457,16 @@ class LeakFinder(ast.NodeVisitor):
 
     # one finding per (line, pattern): `tib.min()` twice in one normalization
     # is one site, and reporting it twice tells the reader nothing new
-    def add_finding(self, node: ast.Call, pattern: str,
-                    message: str, confidence: str) -> None:
+    def add_finding(self, node: ast.Call, pattern: str, message: str,
+                    confidence: str, reach: int | str | None = None) -> None:
         line = node.lineno
         if line in self.ignored:
             return
         if any(f.line == line and f.pattern == pattern for f in self.findings):
             return
         col, end_col = call_span(node, self.lines)
-        self.findings.append(Finding(line, col, end_col, pattern, message, confidence))
+        self.findings.append(
+            Finding(line, col, end_col, pattern, message, confidence, reach))
 
     # resolves `name = <int literal>` and `name = <windowed expr>` at the top
     # level of a file only, and only if the name is assigned once - anything
@@ -494,7 +518,8 @@ class LeakFinder(ast.NodeVisitor):
 
     def check_backfill(self, node: ast.Call, name: str) -> None:
         self.add_finding(node, name,
-                         "backward fill pulls future values into earlier rows", "high")
+                         "backward fill pulls future values into earlier rows",
+                         "high", REACH_SERIES)
 
     def check_shift(self, node: ast.Call, name: str) -> None:
         self.shift_count = self.shift_count + 1
@@ -513,16 +538,14 @@ class LeakFinder(ast.NodeVisitor):
                 if keyword.arg == "periods":
                     arg = keyword.value
 
-        periods = extract_int_literal(arg)
-        if periods is None and isinstance(arg, ast.Name):
-            periods = self.known_ints.get(arg.id)
+        periods = resolve_int(arg, self.known_ints)
 
         if periods is None:
             self.unknown_shifts = self.unknown_shifts + 1
         elif periods < 0:
             rows = "row" if abs(periods) == 1 else "rows"
             message = f"shift({periods}) pulls {abs(periods)} future {rows} backward"
-            self.add_finding(node, "shift", message, "high")
+            self.add_finding(node, "shift", message, "high", abs(periods))
 
     def check_rolling(self, node: ast.Call, name: str) -> None:
         # only a literal True counts - center=some_flag can't be read, and
@@ -534,12 +557,14 @@ class LeakFinder(ast.NodeVisitor):
         if not centered:
             return
 
-        window = rolling_window(node)
+        window = rolling_window(node, self.known_ints)
         if window is not None and compensating_shift(node, window):
             return
 
+        # a window of n straddles the current row, so it reads n // 2 rows ahead
         self.add_finding(node, "rolling",
-                         "rolling(center=True) centers the window on future rows", "high")
+                         "rolling(center=True) centers the window on future rows",
+                         "high", None if window is None else window // 2)
 
     def check_aggregate(self, node: ast.Call, name: str) -> None:
         if self.is_bounded(aggregate_source(node)):
@@ -552,7 +577,7 @@ class LeakFinder(ast.NodeVisitor):
         else:
             return
 
-        self.add_finding(node, name, message, "low")
+        self.add_finding(node, name, message, "low", REACH_SERIES)
 
 
 # Resolved after the class body so a handler named in RULES that does not exist
@@ -570,6 +595,15 @@ def sort_findings(findings: Iterable[Finding]) -> list[Finding]:
     return sorted(findings, key=lambda finding: (RANK[finding.conf], finding.line))
 
 
+def describe_reach(reach: int | str | None) -> str:
+    """The reach as a phrase, for a human reading the terminal."""
+    if reach == REACH_SERIES:
+        return "whole series"
+    if reach is None:
+        return "unknown"
+    return f"{reach} row" if reach == 1 else f"{reach} rows"
+
+
 def caret_prefix(line: str, column: int) -> str:
     # tabs are kept as tabs so the carets stay under their token whatever
     # width the terminal renders a tab at
@@ -580,7 +614,7 @@ def format_finding(fpath: str, finding: Finding, lines: Sequence[str],
                    number_width: int = 0) -> str:
     """One finding as three lines: a header, the source line, and carets.
 
-    sample.py:7:27: high  backward-fill
+    sample.py:7:27: high  backward-fill  reach whole series
        7 | df['close'] = df['close'].bfill()
          |                           ^^^^^^^ backward fill pulls future rows back
 
@@ -589,7 +623,8 @@ def format_finding(fpath: str, finding: Finding, lines: Sequence[str],
     """
     style = CONFIDENCE_STYLE[finding.conf]
     header = (f"{paint(fpath, 'bold')}:{finding.line}:{finding.col + 1}: "
-              f"{paint(finding.conf, *style)}  {finding.rule}")
+              f"{paint(finding.conf, *style)}  {finding.rule}"
+              f"{paint('  reach ' + describe_reach(finding.reach), 'dim')}")
 
     if finding.line > len(lines):
         return f"{header}\n    {finding.msg}"
@@ -686,6 +721,10 @@ def sarif_document(results: Sequence[tuple[str, "LeakFinder"]]) -> dict:
                     },
                 }],
                 "partialFingerprints": {"leakcheckSourceLine/v1": fingerprint(finding, source)},
+                "properties": {
+                    "reach": finding.reach,
+                    "reachDescription": describe_reach(finding.reach),
+                },
             })
 
     return {
@@ -726,6 +765,7 @@ def json_document(results: Sequence[tuple[str, "LeakFinder"]]) -> list[dict]:
             "rule": finding.rule,
             "pattern": finding.pattern,
             "confidence": finding.conf,
+            "reach": finding.reach,
             "message": finding.msg,
         }
         for fpath, finder in results

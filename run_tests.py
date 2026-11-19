@@ -117,6 +117,9 @@ def main():
     print()
     if not sarif_output_valid():
         any_case_failed = True
+    print()
+    if not series_shim_correct():
+        any_case_failed = True
 
     sys.exit(1 if any_case_failed else 0)
 
@@ -225,6 +228,55 @@ def sarif_output_valid():
             result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"])),
         ("fingerprint present", bool(result.get("partialFingerprints"))),
         (f"columns select the call, got {span!r}", span == "bfill()"),
+    ]
+
+    for description, ok in checks:
+        print(f"  {'pass' if ok else 'FAIL'} {description}")
+    return all(ok for _, ok in checks)
+
+
+# Every number cost.py prints rests on this shim behaving like the pandas
+# methods the strategies call. If shift or the centered window is off by one,
+# the cost table is quietly wrong in a way no other test would notice, so the
+# semantics are pinned here against hand-worked expectations.
+def series_shim_correct():
+    print("series shim:")
+    sys.path.insert(0, "cost_cases")
+    try:
+        from series import Series
+    except ImportError as error:
+        print(f"  FAIL could not import: {error}")
+        return False
+
+    values = Series([1.0, 2.0, None, 4.0, 5.0])
+    ramp = Series([1.0, 2.0, 3.0, 4.0, 5.0])
+
+    # the lines below call the very methods finder.py flags, which is the
+    # point of them, so they carry the ignore comment a reader would have to
+    # add to any deliberate use
+
+    checks = [
+        ("shift(1) moves values forward",
+         values.shift(1).values == [None, 1.0, 2.0, None, 4.0]),
+        ("shift(-1) moves values back",
+         values.shift(-1).values == [2.0, None, 4.0, 5.0, None]),  # leakcheck: ignore
+        ("ffill carries the last known value",
+         values.ffill().values == [1.0, 2.0, 2.0, 4.0, 5.0]),
+        ("bfill carries the next known value",
+         values.bfill().values == [1.0, 2.0, 4.0, 4.0, 5.0]),  # leakcheck: ignore
+        ("min and max skip missing values",
+         (values.min(), values.max()) == (1.0, 5.0)),
+        ("a trailing window ends on the current row",
+         ramp.rolling(3).max().values == [None, None, 3.0, 4.0, 5.0]),
+        ("a centered window is the trailing one moved back window // 2",
+         ramp.rolling(3, center=True).max().values  # leakcheck: ignore
+         == ramp.rolling(3).max().shift(-1).values),  # leakcheck: ignore
+        ("a window containing a gap is missing",
+         values.rolling(2).max().values == [None, 2.0, None, None, 5.0]),
+        ("pct_change is row over previous row",
+         ramp.pct_change().values[1] == 1.0),
+        ("comparing against a missing value is False",
+         (values > 0).values == [True, True, False, True, True]),
     ]
 
     for description, ok in checks:

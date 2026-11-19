@@ -33,7 +33,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      # tests/cases and sample.py hold deliberate leaks used as fixtures, so
+      # tests/cases, cost_cases and sample.py hold deliberate leaks used as
+      # fixtures, so
       # scanning them would fill the Security tab with findings that are the
       # point of those files. The corpora are gitignored and so absent from a
       # fresh checkout, but excluding them keeps this command's output the
@@ -42,7 +43,7 @@ jobs:
       - name: scan
         run: |
           python3 finder.py --format sarif --quiet \
-            --exclude tests --exclude sample.py \
+            --exclude tests --exclude sample.py --exclude cost_cases \
             --exclude corpus --exclude holdout --exclude strategies \
             . > leakcheck.sarif || true
       - uses: github/codeql-action/upload-sarif@v3
@@ -66,3 +67,11 @@ jobs:
         run: python3 fetch_corpora.py --check
       - name: injected-leak recall
         run: python3 recall.py
+      # the cost table reads SPY closes out of the development corpus, so it
+      # can only run once the corpora are fetched
+      - name: what each leak costs
+        run: python3 cost.py
+      - name: the committed figure still matches what cost.py produces
+        run: |
+          python3 cost.py --svg
+          git diff --exit-code -- docs/cost.svg
